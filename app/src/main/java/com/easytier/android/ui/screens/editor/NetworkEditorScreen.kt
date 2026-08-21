@@ -139,6 +139,8 @@ fun NetworkEditorScreen(
                 }
             }
         }
+        // 启动已发起（或无需授权）后再返回；授权弹窗期间留在本页，避免 launcher 随页面销毁
+        onBack()
     }
 
     Scaffold(
@@ -218,6 +220,7 @@ fun NetworkEditorScreen(
                                 runWithVpnPermission()
                             } else {
                                 container.vpnController.startNetwork(n, withVpn = false)
+                                onBack()
                             }
                         }
                     },

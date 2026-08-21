@@ -35,6 +35,9 @@ class VpnController(
     /** 待建立 TUN 的网络（name -> 配置），IP 就绪即建，实例停止/出错则移除。 */
     private val pendingVpns = mutableMapOf<String, SavedNetwork>()
 
+    /** 已启动实例的配置哈希（name -> hash），用于判断编辑后是否需要重启实例。 */
+    private val runningConfigHashes = mutableMapOf<String, Int>()
+
     init {
         scope.launch {
             engine.states.collect { states ->
@@ -75,12 +78,18 @@ class VpnController(
             )
             val effective = network.copy(config = config)
             val name = config.networkName
-            // 授权回调后再次进入时实例可能已在运行，只补建 VPN，不重复 start
+            // 已在运行：同配置只补建 VPN；配置已变（编辑后保存并运行）则重启实例使新配置生效
+            val configChanged = runningConfigHashes[name] != null &&
+                runningConfigHashes[name] != config.hashCode()
             val alreadyRunning =
                 engine.states.value[name] is InstanceState.Running
-            if (!alreadyRunning) {
+            if (alreadyRunning && configChanged) {
+                engine.stop(name)
+            }
+            if (!alreadyRunning || configChanged) {
                 engine.start(effective, TomlGenerator.generate(config))
                     .onFailure { Log.e(TAG, "实例启动失败: ${it.message}"); return@launch }
+                runningConfigHashes[name] = config.hashCode()
             }
             if (withVpn) {
                 if (needsPermission() != null) {
@@ -97,6 +106,7 @@ class VpnController(
         scope.launch {
             val name = network.config.networkName
             pendingVpns.remove(name)
+            runningConfigHashes.remove(name)
             engine.stop(name)
             val othersActive = engine.states.value.values.any {
                 it is InstanceState.Running || it is InstanceState.Starting
@@ -114,6 +124,7 @@ class VpnController(
     fun stopAll() {
         scope.launch {
             pendingVpns.clear()
+            runningConfigHashes.clear()
             EasyTierVpnService.stop(context)
             engine.stopAll()
         }
