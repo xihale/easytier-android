@@ -49,6 +49,7 @@ import com.easytier.android.ui.components.AppCard
 import com.easytier.android.ui.components.EmptyState
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.ServiceHeroCard
+import com.easytier.android.ui.components.rememberWithVpnPermission
 import com.easytier.android.ui.components.stateAccent
 import com.easytier.android.ui.icons.AppIcons
 import com.easytier.android.util.Format
@@ -110,6 +111,11 @@ fun NetworksScreen(
         scope.launch { snackbar.showSnackbar(message) }
     }
 
+    // 开启服务（TUN）前先确保 VPN 已授权；授权通过后再真正启动
+    val startServiceWithPermission = rememberWithVpnPermission {
+        vm.startService()?.let { showSnack(it) }
+    }
+
     // ---- 服务级聚合状态 ----
     val activeCount = states.values.count { it is InstanceState.Running || it is InstanceState.Starting }
     val runningInfos = networks.mapNotNull { n ->
@@ -152,7 +158,7 @@ fun NetworksScreen(
                     },
                     onToggle = { on ->
                         if (on) {
-                            vm.startService()?.let { showSnack(it) }
+                            startServiceWithPermission()
                         } else {
                             vm.stopService()
                         }
