@@ -30,42 +30,6 @@ import androidx.compose.ui.unit.dp
 import com.easytier.android.core.engine.InstanceState
 import com.easytier.android.ui.theme.LocalStatusColors
 
-/** 顶部大标题（三个顶层页统一：标题 + 副标题 + 右侧动作）。 */
-@Composable
-fun ScreenHeader(
-    title: String,
-    modifier: Modifier = Modifier,
-    subtitle: String? = null,
-    trailing: @Composable () -> Unit = {},
-) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) { trailing() }
-        }
-        if (subtitle != null) {
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-    }
-}
-
 /** 统一卡片外观：所有列表/信息卡走同一容器色与圆角。 */
 @Composable
 fun AppCard(

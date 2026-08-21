@@ -65,6 +65,7 @@ import com.easytier.android.ui.components.rememberWithVpnPermission
 import com.easytier.android.ui.icons.AppIcons
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** 编辑页 ViewModel。 */
@@ -115,6 +116,7 @@ fun NetworkEditorScreen(
     val vm: EditorViewModel = viewModel { EditorViewModel(container) }
     val network by vm.network.collectAsState()
     val scope = rememberCoroutineScope()
+    val settings by container.settingsRepository.settings.collectAsState(initial = null)
 
     LaunchedEffect(networkId) { vm.load(networkId) }
 
@@ -131,8 +133,10 @@ fun NetworkEditorScreen(
         pendingRunId?.let { id ->
             pendingRunId = null
             scope.launch {
-                container.networksRepository.get(id)
-                    ?.let { container.vpnController.startNetwork(it, withVpn = true) }
+                container.networksRepository.get(id)?.let { n ->
+                    val withVpn = container.settingsRepository.settings.first().startVpnWithNetwork
+                    container.vpnController.startNetwork(n, withVpn)
+                }
             }
         }
     }
@@ -209,8 +213,12 @@ fun NetworkEditorScreen(
                     onClick = {
                         vm.autoStartAfterSave = true
                         vm.save { n, _ ->
-                            pendingRunId = n.id
-                            runWithVpnPermission()
+                            if (settings?.startVpnWithNetwork != false) {
+                                pendingRunId = n.id
+                                runWithVpnPermission()
+                            } else {
+                                container.vpnController.startNetwork(n, withVpn = false)
+                            }
                         }
                     },
                     modifier = Modifier.weight(1f),
@@ -352,23 +360,11 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
         checked = config.enableExitNode ?: false,
         onCheckedChange = { v -> update { it.copy(enableExitNode = v) } },
     )
-    SwitchRow(
-        title = "启用 SOCKS5",
-        subtitle = "在本机开启 SOCKS5 代理服务",
-        checked = config.enableSocks5 ?: false,
-        onCheckedChange = { v ->
-            update { it.copy(enableSocks5 = v, socks5Port = if (v) it.socks5Port ?: 1080 else it.socks5Port) }
-        },
+    Text(
+        "SOCKS5 代理等应用层设置已移至「设置 → 应用层」。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    if (config.enableSocks5 == true) {
-        OutlinedTextField(
-            value = (config.socks5Port ?: 1080).toString(),
-            onValueChange = { v -> update { it.copy(socks5Port = v.toIntOrNull()) } },
-            label = { Text("SOCKS5 端口") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
 }
 
 // ---------- Advanced 标签 ----------

@@ -7,8 +7,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
@@ -96,15 +94,11 @@ private fun EasyTierAppNavHost(container: AppContainer) {
             navController = navController,
             startDestination = "networks",
             modifier = Modifier.padding(padding),
-            // navigation-compose 默认 700ms fade 又慢又飘，改成短促转场
-            enterTransition = {
-                slideInHorizontally(tween(220)) { it / 4 } + fadeIn(tween(220))
-            },
+            // 纯短淡入淡出：slide 会带着重组中的重页面一起动画，是切页卡顿的主因
+            enterTransition = { fadeIn(tween(160)) },
             exitTransition = { fadeOut(tween(90)) },
-            popEnterTransition = { fadeIn(tween(220)) },
-            popExitTransition = {
-                slideOutHorizontally(tween(220)) { it / 4 } + fadeOut(tween(220))
-            },
+            popEnterTransition = { fadeIn(tween(160)) },
+            popExitTransition = { fadeOut(tween(90)) },
         ) {
             composable("networks") {
                 NetworksScreen(

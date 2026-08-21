@@ -27,21 +27,19 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.easytier.android.EasyTierApp
+import com.easytier.android.core.vpn.BootCompletedReceiver
 import com.easytier.android.data.store.AppSettings
 import com.easytier.android.data.store.SettingsRepository
 import com.easytier.android.ui.components.ChoiceRow
-import com.easytier.android.ui.components.ScreenHeader
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.SettingRow
 import com.easytier.android.ui.components.SwitchRow
@@ -64,15 +62,18 @@ class SettingsViewModel : ViewModel() {
         )
 
     fun setTheme(mode: String) = launchIO { repo.setThemeMode(mode) }
-    fun setLanguage(lang: String) = launchIO { repo.setLanguage(lang) }
-    fun setLogLevel(level: String) = launchIO { repo.setLogLevel(level) }
-    fun setAutoStart(enabled: Boolean) =
+
+    fun setAutoStart(context: android.content.Context, enabled: Boolean) =
         launchIO {
             val current = settings.value
             repo.setAutoStart(enabled, current?.autoStartNetworkId)
+            // 同步启用/禁用开机广播接收器组件，否则开关只是存了个数字
+            BootCompletedReceiver.setEnabled(context, enabled)
         }
 
     fun setVpnWithNetwork(enabled: Boolean) = launchIO { repo.setVpnWithNetwork(enabled) }
+
+    fun setSocks5(enabled: Boolean, port: Int) = launchIO { repo.setSocks5(enabled, port) }
 
     private fun launchIO(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
@@ -80,21 +81,15 @@ class SettingsViewModel : ViewModel() {
 }
 
 private val THEME_OPTIONS = listOf("system" to "跟随系统", "light" to "浅色", "dark" to "深色")
-private val LANGUAGE_OPTIONS =
-    listOf("system" to "跟随系统", "zh" to "简体中文", "en" to "English")
-private val LOG_LEVEL_OPTIONS =
-    listOf("trace" to "Trace", "debug" to "Debug", "info" to "Info", "warn" to "Warn", "error" to "Error")
 
 @Composable
 fun SettingsScreen() {
     val vm: SettingsViewModel = viewModel()
     val settings by vm.settings.collectAsState()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     var showThemeDialog by remember { mutableStateOf(false) }
-    var showLangDialog by remember { mutableStateOf(false) }
-    var showLogDialog by remember { mutableStateOf(false) }
+    var showSocks5Dialog by remember { mutableStateOf(false) }
 
     // VPN 权限申请（prepare 返回非 null 时发起系统授权）
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
@@ -107,40 +102,51 @@ fun SettingsScreen() {
 
     val s = settings ?: return
 
-    // 底部导航的顶层页：统一大标题头，无返回箭头（返回交给系统手势/底部导航）
     Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        ScreenHeader("设置")
         Column(
-            Modifier.padding(horizontal = 16.dp),
+            Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            SectionHeader("连接")
+            SectionHeader("应用层")
             SwitchRow(
                 title = "VPN 模式",
-                subtitle = "使用系统 VPN（TUN）接管全部流量",
+                subtitle = "使用系统 VPN（TUN）接管全部流量；关闭后仅启动核心（SOCKS5 等方式使用）",
                 icon = AppIcons.Shield,
                 checked = s.startVpnWithNetwork,
                 onCheckedChange = { vm.setVpnWithNetwork(it) },
             )
             SwitchRow(
+                title = "SOCKS5 代理",
+                subtitle = "在本机开启 SOCKS5 服务，作为访问虚拟网络的入口",
+                icon = AppIcons.Language,
+                checked = s.enableSocks5,
+                onCheckedChange = { vm.setSocks5(it, s.socks5Port) },
+            )
+            if (s.enableSocks5) {
+                SettingRow(
+                    title = "SOCKS5 端口",
+                    subtitle = "重启网络后生效",
+                    icon = AppIcons.Terminal,
+                    onClick = { showSocks5Dialog = true },
+                    trailing = {
+                        Text(
+                            s.socks5Port.toString(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                )
+            }
+            SwitchRow(
                 title = "开机自启",
                 subtitle = "设备开机后自动启动选定的网络",
                 icon = AppIcons.Terminal,
                 checked = s.autoStartOnBoot,
-                onCheckedChange = { vm.setAutoStart(it) },
-            )
-
-            Spacer(Modifier.height(12.dp))
-            SectionHeader("日志")
-            ChoiceRow(
-                title = "日志级别",
-                value = s.logLevel,
-                icon = AppIcons.Terminal,
-                onClick = { showLogDialog = true },
+                onCheckedChange = { vm.setAutoStart(context, it) },
             )
 
             Spacer(Modifier.height(12.dp))
@@ -150,12 +156,6 @@ fun SettingsScreen() {
                 value = THEME_OPTIONS.firstOrNull { it.first == s.themeMode }?.second ?: s.themeMode,
                 icon = AppIcons.DarkMode,
                 onClick = { showThemeDialog = true },
-            )
-            ChoiceRow(
-                title = "语言",
-                value = LANGUAGE_OPTIONS.firstOrNull { it.first == s.language }?.second ?: s.language,
-                icon = AppIcons.Language,
-                onClick = { showLangDialog = true },
             )
 
             Spacer(Modifier.height(12.dp))
@@ -197,22 +197,16 @@ fun SettingsScreen() {
             onDismiss = { showThemeDialog = false },
         )
     }
-    if (showLangDialog) {
-        ChoiceDialog(
-            title = "语言",
-            options = LANGUAGE_OPTIONS,
-            selected = s.language,
-            onSelect = { vm.setLanguage(it); showLangDialog = false },
-            onDismiss = { showLangDialog = false },
-        )
-    }
-    if (showLogDialog) {
-        ChoiceDialog(
-            title = "日志级别",
-            options = LOG_LEVEL_OPTIONS,
-            selected = s.logLevel,
-            onSelect = { vm.setLogLevel(it); showLogDialog = false },
-            onDismiss = { showLogDialog = false },
+    if (showSocks5Dialog) {
+        com.easytier.android.ui.components.TextInputDialog(
+            title = "SOCKS5 端口",
+            initialValue = s.socks5Port.toString(),
+            label = "端口（1024 - 65535）",
+            onDismiss = { showSocks5Dialog = false },
+            onConfirm = { text ->
+                text.toIntOrNull()?.let { vm.setSocks5(s.enableSocks5, it) }
+                showSocks5Dialog = false
+            },
         )
     }
 }
@@ -249,3 +243,4 @@ private fun ChoiceDialog(
         },
     )
 }
+

@@ -56,7 +56,6 @@ import com.easytier.android.ui.components.InfoRow
 import com.easytier.android.ui.components.PillBadge
 import com.easytier.android.ui.components.RateChart
 import com.easytier.android.ui.components.RateRow
-import com.easytier.android.ui.components.ScreenHeader
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.StatusDot
 import com.easytier.android.ui.icons.AppIcons
@@ -121,7 +120,6 @@ fun StatusScreen(
     val states by vm.states.collectAsState()
     val rxHistory by vm.rxRateHistory.collectAsState()
     val txHistory by vm.txRateHistory.collectAsState()
-    val statusColors = LocalStatusColors.current
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -156,28 +154,10 @@ fun StatusScreen(
         info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.txBytesLong ?: 0 } }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        ScreenHeader(
-            title = "状态",
-            subtitle = when {
-                running.isEmpty() -> "查看运行中的网络"
-                running.size == 1 -> running.first().first
-                else -> "${running.size} 个网络运行中"
-            },
-            trailing = {
-                if (running.isNotEmpty()) {
-                    PillBadge(
-                        text = "已连接",
-                        containerColor = statusColors.successContainer,
-                        labelColor = statusColors.onSuccessContainer,
-                    )
-                }
-            },
-        )
-
-        if (running.isEmpty()) {
-            val starting = states.values.any { it is InstanceState.Starting }
-            val error = states.values.filterIsInstance<InstanceState.Error>().firstOrNull()
+    if (running.isEmpty()) {
+        val starting = states.values.any { it is InstanceState.Starting }
+        val error = states.values.filterIsInstance<InstanceState.Error>().firstOrNull()
+        Column(Modifier.fillMaxSize()) {
             EmptyState(
                 icon = AppIcons.CloudOff,
                 title = when {
@@ -188,12 +168,13 @@ fun StatusScreen(
                 hint = error?.message ?: "回到「网络」页打开一个网络的开关",
                 modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 96.dp),
             )
-        } else {
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+        }
+    } else {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
                 item { NodeInfoCard(running) }
                 item {
                     TrafficCard(
@@ -230,7 +211,6 @@ fun StatusScreen(
                 item { SectionHeader("事件 · ${events.size}") }
                 item { EventsCard(events, showNetwork = multi) }
             }
-        }
     }
 }
 

@@ -142,7 +142,10 @@ class EasyTierEngine {
                 InstanceState.Error(info.errorMsg ?: "实例未在运行")
             }
         }
-        _states.value = newStates
+        // 内容不变时不发新值，StateFlow 去重失败会每 2s 触发整页重组（切页卡顿来源之一）
+        if (newStates != _states.value) {
+            _states.value = newStates
+        }
     }
 
     private fun emitEvent(message: String) {

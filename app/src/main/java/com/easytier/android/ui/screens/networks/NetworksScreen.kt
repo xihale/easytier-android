@@ -43,20 +43,21 @@ import com.easytier.android.AppContainer
 import com.easytier.android.core.engine.InstanceState
 import com.easytier.android.data.model.NetworkingMethod
 import com.easytier.android.data.model.SavedNetwork
+import com.easytier.android.data.store.AppSettings
 import com.easytier.android.ui.components.AppCard
 import com.easytier.android.ui.components.EmptyState
 import com.easytier.android.ui.components.SectionHeader
-import com.easytier.android.ui.components.ScreenHeader
-import com.easytier.android.ui.components.VpnHeroCard
+import com.easytier.android.ui.components.ServiceHeroCard
 import com.easytier.android.ui.components.rememberWithVpnPermission
 import com.easytier.android.ui.components.stateAccent
 import com.easytier.android.ui.icons.AppIcons
 import com.easytier.android.util.Format
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** 首页 ViewModel：网络列表 + 运行状态。 */
+/** 首页 ViewModel：网络列表 + 运行状态 + 设置快照。 */
 class NetworksViewModel(val container: AppContainer) : ViewModel() {
 
     val networks = container.networksRepository.networks
@@ -64,15 +65,26 @@ class NetworksViewModel(val container: AppContainer) : ViewModel() {
 
     val states = container.engine.states
 
-    fun start(network: SavedNetwork) =
-        viewModelScope.launch {
-            container.vpnController.startNetwork(network, withVpn = true)
-        }
+    val settings: StateFlow<AppSettings?> = container.settingsRepository.settings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** 启动单个网络（withVpn 由设置页「VPN 模式」决定）。 */
+    fun start(network: SavedNetwork) {
+        val withVpn = settings.value?.startVpnWithNetwork ?: true
+        viewModelScope.launch { container.vpnController.startNetwork(network, withVpn) }
+    }
 
     fun stop(network: SavedNetwork) =
-        viewModelScope.launch {
-            container.vpnController.stopNetwork(network)
-        }
+        viewModelScope.launch { container.vpnController.stopNetwork(network) }
+
+    /** 服务级启动：拉起全部网络。 */
+    fun startAll() {
+        val withVpn = settings.value?.startVpnWithNetwork ?: true
+        container.vpnController.startNetworks(networks.value, withVpn)
+    }
+
+    /** 服务级停止：停掉全部网络与 VPN。 */
+    fun stopAll() = container.vpnController.stopAll()
 
     fun delete(network: SavedNetwork) =
         viewModelScope.launch {
@@ -80,7 +92,9 @@ class NetworksViewModel(val container: AppContainer) : ViewModel() {
         }
 }
 
-/** 网络（首页）：运行中网络的 Hero 速览 + 全部网络列表。 */
+/**
+ * 网络（首页）：服务级 Hero 总开关 + 全部网络列表（各网络独立启停，可同时运行多个）。
+ */
 @Composable
 fun NetworksScreen(
     container: AppContainer,
@@ -91,81 +105,116 @@ fun NetworksScreen(
     val vm: NetworksViewModel = viewModel { NetworksViewModel(container) }
     val networks by vm.networks.collectAsState()
     val states by vm.states.collectAsState()
+    val settings by vm.settings.collectAsState()
 
-    // VPN 授权后再启动；待启动网络只存 id（授权框遮挡期间 Activity 重建后对象引用会失效）
+    // VPN 授权后再启动；待启动目标只存 id（授权框遮挡期间 Activity 重建后对象引用会失效）
     var pendingStartId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingStartAll by rememberSaveable { mutableStateOf(false) }
     val networksState = networks
     val startWithVpnPermission = rememberWithVpnPermission {
-        pendingStartId?.let { id ->
-            pendingStartId = null
-            networksState.firstOrNull { it.id == id }?.let(vm::start)
+        if (pendingStartAll) {
+            pendingStartAll = false
+            vm.startAll()
+        } else {
+            pendingStartId?.let { id ->
+                pendingStartId = null
+                networksState.firstOrNull { it.id == id }?.let(vm::start)
+            }
         }
     }
 
-    val runningNetwork = networks.firstOrNull {
-        states[it.config.networkName] is InstanceState.Running
+    // VPN 模式关闭时无需系统授权，直接启动
+    val vpnEnabled = settings?.startVpnWithNetwork ?: true
+    fun launchWithPermission(startAll: Boolean, networkId: String? = null) {
+        if (vpnEnabled) {
+            pendingStartAll = startAll
+            pendingStartId = networkId
+            startWithVpnPermission()
+        } else if (startAll) {
+            vm.startAll()
+        } else {
+            networksState.firstOrNull { it.id == networkId }?.let(vm::start)
+        }
     }
-    val runningState = runningNetwork?.let { states[it.config.networkName] as? InstanceState.Running }
-    val runningCount = networks.count {
-        states[it.config.networkName] is InstanceState.Running || states[it.config.networkName] is InstanceState.Starting
+
+    // ---- 服务级聚合状态 ----
+    val activeCount = states.values.count { it is InstanceState.Running || it is InstanceState.Starting }
+    val serviceRunning = activeCount > 0
+    val runningInfos = networks.mapNotNull { n ->
+        (states[n.config.networkName] as? InstanceState.Running)?.let { n to it.info }
     }
-    val subtitle = when {
-        networksState.isEmpty() -> "创建你的第一个组网"
-        runningCount > 0 -> "${networksState.size} 个网络 · $runningCount 个运行中"
-        else -> "${networksState.size} 个网络"
+    val rxTotal = runningInfos.sumOf { (_, info) ->
+        info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.rxBytesLong ?: 0L } }
     }
+    val txTotal = runningInfos.sumOf { (_, info) ->
+        info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.txBytesLong ?: 0L } }
+    }
+    val nodeCount = runningInfos.flatMap { (_, info) -> info.peers.map { p -> p.peerId } }.distinct().size +
+        (if (runningInfos.isNotEmpty()) 1 else 0) // 含本机节点，对齐官方客户端口径
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("网络", subtitle = subtitle)
-
         Box(Modifier.fillMaxWidth().weight(1f)) {
-            if (networksState.isEmpty()) {
-                EmptyState(
-                    icon = AppIcons.CloudOff,
-                    title = "还没有网络",
-                    hint = "点击右下角「新建网络」创建你的第一个组网",
-                    modifier = Modifier.align(Alignment.Center),
-                )
-            } else {
-                LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 108.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    runningNetwork?.let { network ->
-                        val info = runningState?.info
-                        item(key = "hero") {
-                            val rx = info?.peers?.sumOf { p -> p.conns.sumOf { c -> c.stats?.rxBytesLong ?: 0 } } ?: 0
-                            val tx = info?.peers?.sumOf { p -> p.conns.sumOf { c -> c.stats?.txBytesLong ?: 0 } } ?: 0
-                            VpnHeroCard(
-                                networkName = network.config.networkName,
-                                virtualIp = info?.myNodeInfo?.virtualIpv4?.toIpString(),
-                                nodeCount = ((info?.peers?.size ?: 0) + 1), // 含本机节点，对齐官方客户端口径
-                                rxTotalText = Format.bytes(rx),
-                                txTotalText = Format.bytes(tx),
-                                onToggle = { on -> if (!on) vm.stop(network) },
-                                onClick = onOpenStatus,
-                            )
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 108.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item(key = "hero") {
+                    ServiceHeroCard(
+                        running = serviceRunning,
+                        statusText = when {
+                            !serviceRunning && networks.isEmpty() -> "未运行"
+                            !serviceRunning -> "未运行 · ${networks.size} 个网络待命"
+                            else -> "运行中 · $activeCount/${networks.size} 个网络"
+                        },
+                        headline = when {
+                            runningInfos.isEmpty() -> "开启以启动全部网络"
+                            runningInfos.size == 1 ->
+                                runningInfos[0].second.myNodeInfo?.virtualIpv4?.toIpString() ?: "正在获取虚拟 IP…"
+                            else -> "${runningInfos.size} 个网络运行中"
+                        },
+                        stats = if (!serviceRunning) emptyList() else buildList {
+                            add("$nodeCount 个节点")
+                            add("↑ ${Format.bytes(txTotal)}")
+                            add("↓ ${Format.bytes(rxTotal)}")
+                        },
+                        onToggle = { on ->
+                            if (on) launchWithPermission(startAll = true)
+                            else vm.stopAll()
+                        },
+                        onClick = onOpenStatus,
+                    )
+                }
+
+                item { SectionHeader("我的网络") }
+                if (networks.isEmpty()) {
+                    item(key = "empty") {
+                        AppCard {
+                            Box(Modifier.fillMaxWidth().padding(vertical = 32.dp)) {
+                                EmptyState(
+                                    icon = AppIcons.CloudOff,
+                                    title = "还没有网络",
+                                    hint = "点击右下角「新建网络」创建你的第一个组网",
+                                    modifier = Modifier.align(Alignment.Center),
+                                )
+                            }
                         }
                     }
-
-                    item { SectionHeader("我的网络") }
-                    items(networks, key = { it.id }) { network ->
-                        NetworkCard(
-                            network = network,
-                            state = states[network.config.networkName],
-                            onToggle = { on ->
-                                if (on) {
-                                    pendingStartId = network.id
-                                    startWithVpnPermission()
-                                } else {
-                                    vm.stop(network)
-                                }
-                            },
-                            onEdit = { onEditNetwork(network.id) },
-                            onDelete = { vm.delete(network) },
-                        )
-                    }
+                }
+                items(networks, key = { it.id }) { network ->
+                    NetworkCard(
+                        network = network,
+                        state = states[network.config.networkName],
+                        onToggle = { on ->
+                            if (on) {
+                                launchWithPermission(startAll = false, networkId = network.id)
+                            } else {
+                                vm.stop(network)
+                            }
+                        },
+                        onEdit = { onEditNetwork(network.id) },
+                        onDelete = { vm.delete(network) },
+                    )
                 }
             }
 

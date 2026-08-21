@@ -28,25 +28,28 @@ import androidx.compose.ui.unit.dp
 import com.easytier.android.ui.icons.AppIcons
 
 /**
- * 首页 Hero 卡：当前运行网络的速览。
- * 渐变用固定深蓝（不取主题色）：深色主题下 primary 是浅色，白字会失去对比度。
+ * 首页 Hero 卡：EasyTier 服务总开关（与下面各网络的启用开关解耦）。
+ * 开 = 启动服务（拉起全部网络），关 = 停止全部。
+ * 渐变用固定深蓝（不取主题色）：深色主题下 primary 是浅色，白字会失去对比度；
+ * 未运行时用灰色渐变弱化。
  */
 @Composable
-fun VpnHeroCard(
-    networkName: String,
-    virtualIp: String?,
-    nodeCount: Int,
-    rxTotalText: String,
-    txTotalText: String,
+fun ServiceHeroCard(
+    running: Boolean,
+    statusText: String,
+    headline: String,
+    stats: List<String>,
     onToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
+    val start = if (running) HeroStart else HeroIdleStart
+    val end = if (running) HeroEnd else HeroIdleEnd
     Column(
         modifier
             .fillMaxWidth()
             .background(
-                Brush.linearGradient(listOf(HeroStart, HeroEnd)),
+                Brush.linearGradient(listOf(start, end)),
                 MaterialTheme.shapes.extraLarge,
             )
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
@@ -69,15 +72,15 @@ fun VpnHeroCard(
                 )
                 Column(Modifier.padding(start = 12.dp)) {
                     Text(
-                        networkName,
+                        "EasyTier 服务",
                         style = MaterialTheme.typography.titleMedium,
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusDot(StatusGreen, Modifier.size(8.dp))
+                        StatusDot(if (running) StatusGreen else Color.White.copy(alpha = 0.6f), Modifier.size(8.dp))
                         Text(
-                            "已连接",
+                            statusText,
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.85f),
                             modifier = Modifier.padding(start = 6.dp),
@@ -86,10 +89,10 @@ fun VpnHeroCard(
                 }
             }
             Switch(
-                checked = true,
+                checked = running,
                 onCheckedChange = onToggle,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = HeroStart,
+                    checkedThumbColor = start,
                     checkedTrackColor = Color.White,
                     uncheckedThumbColor = Color.White,
                     uncheckedTrackColor = Color.White.copy(alpha = 0.3f),
@@ -99,24 +102,24 @@ fun VpnHeroCard(
 
         Spacer(Modifier.height(16.dp))
         Text(
-            virtualIp ?: "正在获取虚拟 IP…",
+            headline,
             style = MaterialTheme.typography.headlineSmall,
             color = Color.White,
             fontWeight = FontWeight.Bold,
         )
 
-        Row(
-            Modifier.fillMaxWidth().padding(top = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            HeroStat("${nodeCount} 个节点")
-            HeroStat("↑ $txTotalText")
-            HeroStat("↓ $rxTotalText")
+        if (stats.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                stats.forEach { text -> HeroStat(text) }
+            }
         }
     }
 }
 
-/** Hero 卡内的小统计胶囊（白色半透明底，保证深蓝渐变上可读）。 */
+/** Hero 卡内的小统计胶囊（白色半透明底，保证渐变上可读）。 */
 @Composable
 private fun HeroStat(text: String) {
     Surface(
@@ -134,4 +137,6 @@ private fun HeroStat(text: String) {
 
 private val HeroStart = Color(0xFF0A4CBE)
 private val HeroEnd = Color(0xFF2563EB)
+private val HeroIdleStart = Color(0xFF3B4252)
+private val HeroIdleEnd = Color(0xFF4C566A)
 private val StatusGreen = Color(0xFF34D399)

@@ -14,7 +14,7 @@ class AppContainer(app: Application) {
     val settingsRepository = SettingsRepository(app)
     val networksRepository = NetworksRepository(app)
     val engine = EasyTierEngine()
-    val vpnController = VpnController(app, engine)
+    val vpnController = VpnController(app, engine, settingsRepository)
 }
 
 class EasyTierApp : Application() {
