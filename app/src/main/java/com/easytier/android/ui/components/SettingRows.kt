@@ -1,5 +1,6 @@
 package com.easytier.android.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,8 +32,8 @@ fun SettingRow(
     onClick: (() -> Unit)? = null,
 ) {
     val rowModifier = if (onClick != null) {
-        Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 4.dp)
-            .let { it }
+        Modifier.fillMaxWidth().clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 4.dp)
     } else {
         Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 4.dp)
     }

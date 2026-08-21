@@ -84,12 +84,15 @@ class VpnController(
             )
             val effective = network.copy(config = config)
             val name = config.networkName
-            // 多实例监听端口避让：默认端口被其他运行实例占用时改用空闲端口，
+            // 多实例端口避让：监听端口与 SOCKS5 端口被其他运行实例占用时改用空闲端口，
             // 否则第二个网络会因 Address already in use 启动失败
             val usedPorts = runningConfigs.values
                 .flatMap { it.listenerUrls }
                 .mapNotNull { it.substringAfterLast(':').toIntOrNull() }
                 .toMutableSet()
+            runningConfigs.values.forEach {
+                if (it.enableSocks5 == true) it.socks5Port?.let { p -> usedPorts.add(p) }
+            }
             val listeners = if (config.listenerUrls.any {
                     it.substringAfterLast(':').toIntOrNull() in usedPorts
                 }
@@ -99,18 +102,29 @@ class VpnController(
                 config.listenerUrls
             }
             val effectiveConfig = config.copy(listenerUrls = listeners)
+            var socks5Port = if (settings.enableSocks5) settings.socks5Port else null
+            if (socks5Port != null) {
+                var candidate = socks5Port
+                while (candidate in usedPorts) candidate += 1
+                usedPorts.add(candidate)
+                socks5Port = candidate
+            }
+            val finalConfig = effectiveConfig.copy(
+                enableSocks5 = socks5Port != null,
+                socks5Port = socks5Port,
+            )
             // 已在运行：同配置只补建 VPN；配置已变（编辑后保存并运行）则重启实例使新配置生效
             val configChanged = runningConfigs[name] != null &&
-                runningConfigs[name] != effectiveConfig
+                runningConfigs[name] != finalConfig
             val alreadyRunning =
                 engine.states.value[name] is InstanceState.Running
             if (alreadyRunning && configChanged) {
                 engine.stop(name)
             }
             if (!alreadyRunning || configChanged) {
-                engine.start(effective, TomlGenerator.generate(effectiveConfig))
+                engine.start(effective, TomlGenerator.generate(finalConfig))
                     .onFailure { Log.e(TAG, "实例启动失败: ${it.message}"); return@launch }
-                runningConfigs[name] = effectiveConfig
+                runningConfigs[name] = finalConfig
             }
             if (withVpn) {
                 if (needsPermission() != null) {

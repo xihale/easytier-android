@@ -60,6 +60,17 @@ class EasyTierEngine {
                 _states.value = _states.value + (name to InstanceState.Starting)
                 emitEvent("启动实例 $name")
 
+                // 清理核心中遗留的孤儿实例：此前启动失败的实例仍注册在核心里，
+                // 不清理的话重试会报 "instance already exists"。
+                // 只保留我们仍在管理的实例。
+                runCatching {
+                    if (runningInstances.isEmpty()) {
+                        EasyTierJNI.stopAllInstances()
+                    } else {
+                        EasyTierJNI.retainNetworkInstance(runningInstances.toTypedArray())
+                    }
+                }
+
                 val rc = EasyTierJNI.runNetworkInstance(toml)
                 if (rc != 0) {
                     val err = EasyTierJNI.getLastError() ?: "unknown error (rc=$rc)"
