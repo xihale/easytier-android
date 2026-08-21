@@ -48,7 +48,6 @@ data class NetworkInstanceRunningInfoMap(
 data class NetworkInstanceRunningInfo(
     @SerialName("dev_name") val devName: String = "",
     @SerialName("my_node_info") val myNodeInfo: MyNodeInfo? = null,
-    val events: List<String> = emptyList(),
     val routes: List<Route> = emptyList(),
     val peers: List<PeerInfo> = emptyList(),
     val running: Boolean = false,
@@ -227,3 +226,17 @@ fun peerLatencyBadge(connLatencyMs: Long?, pathLatency: Long): PeerLatencyBadge 
         else -> PeerLatencyBadge(false, "$effective ms", LatencyTier.BAD)
     }
 }
+
+private val INTERNAL_SCHEMES = setOf("ring", "tun", "unix")
+
+/** 对外监听 URL；内部通道返回 null。 */
+fun publicListenerUrl(url: String): String? {
+    val trimmed = url.trim()
+    if (trimmed.isEmpty()) return null
+    val scheme = trimmed.substringBefore("://", missingDelimiterValue = trimmed).lowercase()
+    if (scheme in INTERNAL_SCHEMES) return null
+    return trimmed
+}
+
+fun MyNodeInfo.publicListeners(): List<String> =
+    listeners.map { it.url }.mapNotNull(::publicListenerUrl)
