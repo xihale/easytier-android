@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 背景圆 -->
+    <path
+        android:fillColor="#2979FF"
+        android:pathData="M54,54m-50,0a50,50 0,1 1,100 0a50,50 0,1 1,-100 0" />
+    <!-- 网络节点：中心 + 3 个外围 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,50m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,28m-4.5,0a4.5,4.5 0,1 1,9 0a4.5,4.5 0,1 1,-9 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M35,66m-4.5,0a4.5,4.5 0,1 1,9 0a4.5,4.5 0,1 1,-9 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M73,66m-4.5,0a4.5,4.5 0,1 1,9 0a4.5,4.5 0,1 1,-9 0" />
+    <!-- 连线 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:pathData="M54,50 L54,28 M54,50 L35,66 M54,50 L73,66" />
+</vector>

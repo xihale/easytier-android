@@ -1,0 +1,19 @@
+# Gradle / Kotlin build outputs
+.gradle/
+.kotlin/
+build/
+
+# Local machine-specific configuration
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# NDK builds
+.externalNativeBuild/
+.cxx/
+
+# Misc
+.DS_Store
+/captures
