@@ -148,6 +148,10 @@ object TomlGenerator {
         config.disableRelayData?.let { flags["disable_relay_data"] = it }
         config.enableUdpBroadcastRelay?.let { flags["enable_udp_broadcast_relay"] = it }
         config.disableIpv6?.let { flags["enable_ipv6"] = !it }
+        if (config.enableSocks5 == true) {
+            flags["enable_socks5"] = true
+            config.socks5Port?.let { flags["socks5_port"] = it }
+        }
         config.dataCompressAlgo?.let { flags["data_compress_algo"] = it }
         config.encryptionAlgorithm?.let { flags["encryption_algorithm"] = it }
         config.devName?.takeIf { it.isNotBlank() }?.let { flags["dev_name"] = it }
@@ -193,6 +197,7 @@ object TomlGenerator {
         config.disableRelayData?.let { put("disable_relay_data", DEFAULT_FLAGS["disable_relay_data"]!! to it) }
         config.enableUdpBroadcastRelay?.let { put("enable_udp_broadcast_relay", DEFAULT_FLAGS["enable_udp_broadcast_relay"]!! to it) }
         config.disableIpv6?.let { put("enable_ipv6", true to !it) }
+        config.enableSocks5?.let { put("enable_socks5", false to it) }
     }
 
     private fun formatValue(v: Any): String = when (v) {

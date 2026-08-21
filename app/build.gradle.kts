@@ -92,4 +92,6 @@ dependencies {
     // 仅引入实际用到的扩展图标（core 集缺少这些）
     implementation("androidx.compose.material:material-icons-core")
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    testImplementation("junit:junit:4.13.2")
 }

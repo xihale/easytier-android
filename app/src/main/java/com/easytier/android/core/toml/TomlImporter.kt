@@ -100,6 +100,8 @@ object TomlImporter {
             disableRelayData = flags?.getBoolean("disable_relay_data"),
             enableUdpBroadcastRelay = flags?.getBoolean("enable_udp_broadcast_relay"),
             disableIpv6 = flags?.getBoolean("enable_ipv6")?.let { !it },
+            enableSocks5 = flags?.getBoolean("enable_socks5"),
+            socks5Port = (flags?.get("socks5_port") as? Number)?.toInt(),
             dataCompressAlgo = flags?.getString("data_compress_algo"),
             encryptionAlgorithm = flags?.getString("encryption_algorithm"),
             devName = flags?.getString("dev_name"),
