@@ -136,6 +136,24 @@ class TomlRoundTripTest {
     }
 
     @Test
+    fun `acl section survives import and regeneration`() {
+        val acl = "[acl]\nsomething = \"kept\""
+        val toml = """
+            instance_name = "ext"
+            dhcp = true
+            [network_identity]
+            network_name = "ext"
+            $acl
+        """.trimIndent()
+        val parsed = TomlImporter.parse(toml).getOrThrow()
+        assertEquals(acl, parsed.acl)
+        // 生成器把 ACL 原样回写到输出末尾
+        val regenerated = TomlGenerator.generate(parsed)
+        assertTrue(regenerated.contains("[acl]"))
+        assertTrue(regenerated.contains("something = \"kept\""))
+    }
+
+    @Test
     fun `exit nodes emitted top-level and survive round trip`() {
         val toml = TomlGenerator.generate(
             NetworkConfig(networkName = "n", exitNodes = listOf("10.126.126.1", "10.126.126.2")),

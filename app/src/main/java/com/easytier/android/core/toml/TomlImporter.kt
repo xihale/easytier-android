@@ -115,13 +115,14 @@ object TomlImporter {
             vpnPortalClientNetworkLen = vpnPortal?.getString("client_cidr")
                 ?.substringAfterLast('/')?.toIntOrNull() ?: 24,
             portForwards = portForwards,
+            acl = extractAclToml(tomlString), // 原样保留 [acl] 段，生成器会原样回写
         )
     }
 
-    /** 提取 TOML 中的 [acl] 段原文（供重新导出保留）。 */
+    /** 提取 TOML 中的 [acl] 段原文（供重新导出保留）。容忍行首缩进，截取到下一个表头或文末。 */
     fun extractAclToml(tomlString: String): String? {
-        val match = Regex("(?ms)^\\[acl\\].*?(?=^\\[|$)").find(tomlString.trim()) ?: return null
-        return match.value.trim()
+        val match = Regex("(?ms)^[ \\t]*\\[acl\\].*?(?=^[ \\t]*\\[|\\z)").find(tomlString.trim())
+        return match?.value?.trim()?.takeIf { it.isNotBlank() }
     }
 
     private fun parseCidr(ipv4: String?): Pair<String?, Int> {
