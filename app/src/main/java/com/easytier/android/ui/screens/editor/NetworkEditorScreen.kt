@@ -298,6 +298,13 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
         checked = config.dhcp,
         onCheckedChange = { v -> update { it.copy(dhcp = v) } },
     )
+    if (config.dhcp && config.networkingMethod == NetworkingMethod.Standalone) {
+        Text(
+            "注意：独立网络无其他节点，DHCP 无法分配地址，请关闭并手动指定虚拟 IPv4。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
     if (!config.dhcp) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
