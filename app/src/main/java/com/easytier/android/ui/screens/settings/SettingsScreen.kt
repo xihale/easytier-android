@@ -77,6 +77,8 @@ class SettingsViewModel : ViewModel() {
 
     fun setSocks5(enabled: Boolean, port: Int) = launchIO { repo.setSocks5(enabled, port) }
 
+    fun setVpnEnabled(enabled: Boolean) = launchIO { repo.setVpnEnabled(enabled) }
+
     private fun launchIO(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
     }
@@ -128,6 +130,13 @@ fun SettingsScreen() {
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             SectionHeader("应用层")
+            SwitchRow(
+                title = "启动 VPN",
+                subtitle = "关闭后不创建系统 VPN（TUN），仅运行引擎，可通过 SOCKS5 代理访问虚拟网络",
+                icon = AppIcons.Shield,
+                checked = s.enableVpn,
+                onCheckedChange = { vm.setVpnEnabled(it) },
+            )
             SwitchRow(
                 title = "SOCKS5 代理",
                 subtitle = "在本机开启 SOCKS5 服务，作为访问虚拟网络的入口",

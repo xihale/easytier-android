@@ -23,7 +23,7 @@ import androidx.compose.ui.platform.LocalContext
  * 普通 remember 会丢失状态导致授权成功后回调变空操作。
  */
 @Composable
-fun rememberWithVpnPermission(block: () -> Unit): () -> Unit {
+fun rememberWithVpnPermission(enabled: Boolean = true, block: () -> Unit): () -> Unit {
     val context: Context = LocalContext.current
     var pending by rememberSaveable { mutableStateOf(false) }
     val currentBlock by rememberUpdatedState(block)
@@ -36,12 +36,18 @@ fun rememberWithVpnPermission(block: () -> Unit): () -> Unit {
         }
     }
     return {
-        val prepareIntent = VpnService.prepare(context)
-        if (prepareIntent != null) {
-            pending = true
-            launcher.launch(prepareIntent)
-        } else {
-            currentBlock()
+        when {
+            // 仅引擎模式：不建 TUN，无需 VPN 权限
+            !enabled -> currentBlock()
+            else -> {
+                val prepareIntent = VpnService.prepare(context)
+                if (prepareIntent != null) {
+                    pending = true
+                    launcher.launch(prepareIntent)
+                } else {
+                    currentBlock()
+                }
+            }
         }
     }
 }

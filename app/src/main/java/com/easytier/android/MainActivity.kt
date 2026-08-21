@@ -123,6 +123,7 @@ private fun EasyTierAppNavHost(container: AppContainer) {
                 NetworkEditorScreen(
                     container = container,
                     networkId = id,
+                    onSaved = { _ -> navController.popBackStack() },
                     onBack = { navController.popBackStack() },
                 )
             }

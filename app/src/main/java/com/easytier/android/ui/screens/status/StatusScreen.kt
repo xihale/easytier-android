@@ -4,7 +4,6 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Icon
@@ -39,16 +37,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.easytier.android.AppContainer
 import com.easytier.android.core.engine.InstanceState
-import com.easytier.android.data.model.HumanEvent
 import com.easytier.android.data.model.NetworkInstanceRunningInfo
 import com.easytier.android.data.model.PeerRoutePair
-import com.easytier.android.data.model.parseHumanEvents
 import com.easytier.android.data.model.peerRoutePairs
+
 import com.easytier.android.data.model.publicIps
 import com.easytier.android.data.model.publicListeners
 import com.easytier.android.ui.components.AppCard
@@ -111,7 +109,7 @@ private data class TaggedPeer(
     val pair: PeerRoutePair,
 )
 
-/** 状态页：汇总全部运行中网络的本机信息 / 流量 / 对等节点 / 事件。 */
+/** 状态页：汇总全部运行中网络的本机信息 / 流量 / 对等节点。 */
 @Composable
 fun StatusScreen(
     container: AppContainer,
@@ -139,14 +137,6 @@ fun StatusScreen(
         running.flatMap { (name, info) ->
             info.peerRoutePairs().map { TaggedPeer(name, it) }
         }
-    }
-    val events = remember(running) {
-        running.flatMap { (name, info) ->
-            val names = info.peerRoutePairs().associate { p ->
-                p.route.peerId to p.route.hostname.ifBlank { p.route.peerId.toString() }
-            }
-            parseHumanEvents(info.events, names, name)
-        }.sortedByDescending { it.sortTime.ifBlank { it.time } }
     }
     val rxTotal = running.sumOf { (_, info) ->
         info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.rxBytesLong ?: 0 } }
@@ -208,9 +198,6 @@ fun StatusScreen(
                         PeerCard(tagged.pair, networkName = if (multi) tagged.network else null)
                     }
                 }
-
-                item { SectionHeader("事件 · ${events.size}") }
-                item { EventsCard(events, showNetwork = multi) }
             }
     }
 }
@@ -352,10 +339,13 @@ private fun NodeDetails(info: NetworkInstanceRunningInfo) {
             "无对外监听",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.End,
         )
     } else {
         FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             listenerLabels(listeners).forEach { label -> ListenerChip(label) }
@@ -402,7 +392,12 @@ private fun PeerCard(pair: PeerRoutePair, networkName: String? = null) {
     val statusColors = LocalStatusColors.current
     val route = pair.route
     val conn = pair.defaultConn
-    val latency = conn?.stats?.latencyMs ?: if (route.pathLatency > 0) route.pathLatency else -1
+    val connLatencyRaw = conn?.stats?.latencyMs ?: -1
+    // EasyTier 用 ≥1000ms（或 0）表示尚未测得延迟；未测得时回退到路径延迟
+    val connMeasured = connLatencyRaw in 1 until 1000
+    val latency = if (connMeasured) connLatencyRaw else route.pathLatency.takeIf { it > 0 } ?: -1
+    // 连接中：有隧道但延迟未测得，或暂时没有任何可用的延迟信息
+    val connecting = !connMeasured && latency <= 0
     val loss = (conn?.lossRate ?: 0f) * 100
     val isDirect = route.isDirect
     val hostname = route.hostname.takeIf { it.isNotBlank() } ?: "peer-${route.peerId}"
@@ -415,10 +410,10 @@ private fun PeerCard(pair: PeerRoutePair, networkName: String? = null) {
         else -> "中转(${route.cost})"
     }
 
-    // 延迟分级：<0 未知（纯中转无直连隧道），<80 良好，<200 一般，其余较差
+    // 延迟分级：连接中/未知用中性色；<80 良好，<200 一般，其余较差
     val (latencyText, latencyContainer, latencyLabel) = when {
-        latency < 0 -> Triple(
-            if (isDirect) "测量中" else "${route.pathLatency} ms",
+        connecting -> Triple(
+            "连接中",
             MaterialTheme.colorScheme.surfaceContainerHigh,
             MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -499,68 +494,3 @@ private fun PeerCard(pair: PeerRoutePair, networkName: String? = null) {
     }
 }
 
-/** 事件卡：时间轴 + 人性化文案（核心 JSON 已在 parseHumanEvents 转成中文）。 */
-@Composable
-private fun EventsCard(events: List<HumanEvent>, showNetwork: Boolean = false) {
-    val statusColors = LocalStatusColors.current
-    AppCard {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            if (events.isEmpty()) {
-                Text(
-                    "暂无事件",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-            } else {
-                events.forEachIndexed { i, event ->
-                    val dot = when (event.kind) {
-                        HumanEvent.Kind.Success -> statusColors.success
-                        HumanEvent.Kind.Warning -> statusColors.warning
-                        HumanEvent.Kind.Error -> MaterialTheme.colorScheme.error
-                        HumanEvent.Kind.Info -> MaterialTheme.colorScheme.outline
-                    }
-                    Row(Modifier.fillMaxWidth()) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.width(16.dp),
-                        ) {
-                            Box(
-                                Modifier.size(8.dp).background(dot, CircleShape),
-                            )
-                            if (i != events.lastIndex) {
-                                Box(
-                                    Modifier
-                                        .padding(top = 4.dp)
-                                        .width(1.dp)
-                                        .height(36.dp)
-                                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                                )
-                            }
-                        }
-                        Column(Modifier.padding(start = 12.dp, bottom = 14.dp).weight(1f)) {
-                            Text(
-                                event.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium,
-                            )
-                            val subtitle = listOfNotNull(
-                                event.time.takeIf { it.isNotBlank() },
-                                event.network?.takeIf { showNetwork && it.isNotBlank() },
-                                event.detail?.takeIf { it.isNotBlank() },
-                            ).joinToString("  ·  ")
-                            if (subtitle.isNotBlank()) {
-                                Text(
-                                    subtitle,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(top = 2.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}

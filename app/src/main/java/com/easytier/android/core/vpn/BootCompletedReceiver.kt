@@ -9,10 +9,7 @@ import com.easytier.android.EasyTierApp
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/**
- * 开机自启：恢复用户指定的网络实例。
- * 组件默认禁用，由设置页开关控制启用状态。
- */
+/** 开机自启：恢复服务（引擎 + 全部勾选的网络）。组件默认禁用，由设置页开关控制。 */
 class BootCompletedReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -23,10 +20,9 @@ class BootCompletedReceiver : BroadcastReceiver() {
             try {
                 val settings = app.container.settingsRepository.settings.first()
                 if (!settings.autoStartOnBoot) return@launch
-                val id = settings.autoStartNetworkId ?: return@launch
-                val network = app.container.networksRepository.get(id) ?: return@launch
-                // 服务与网络解耦：开机自启 = 先标记服务运行意图再启动网络，TUN 随 IP 就绪建立
-                app.container.vpnController.startServiceWithNetworks(listOf(network))
+                // 服务与网络解耦：开机自启 = 启动服务（引擎 + 勾选网络）
+                val all = app.container.networksRepository.networks.first()
+                app.container.vpnController.startServiceWithNetworks(all)
             } finally {
                 pending.finish()
             }

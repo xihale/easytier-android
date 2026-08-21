@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -108,9 +109,11 @@ fun NetworkEditorScreen(
     container: AppContainer,
     networkId: String?,
     onBack: () -> Unit,
+    onSaved: (String) -> Unit = { _ -> onBack() },
 ) {
     val vm: EditorViewModel = viewModel { EditorViewModel(container) }
     val network by vm.network.collectAsState()
+    val scope = rememberCoroutineScope()
 
 
 
@@ -123,12 +126,24 @@ fun NetworkEditorScreen(
 
     val saved = network ?: return
 
-    // 保存并运行：直接启动网络实例（与服务/TUN 解耦，无需 VPN 授权）
-    fun saveAndRun() {
+    // 保存后返回主页（主页面会短暂高亮刚保存的网络）
+    fun saveOnly() {
+        vm.autoStartAfterSave = false
+        vm.save { n, _ -> onSaved(n.id) }
+    }
+
+    // 保存并启用：勾选该网络（服务启动时加入）；服务在运行则直接拉起实例
+    fun saveAndEnable() {
         vm.autoStartAfterSave = true
         vm.save { n, _ ->
-            container.vpnController.startNetwork(n)
-            onBack()
+            val enabledNetwork = n.copy(enabled = true)
+            scope.launch {
+                container.networksRepository.save(
+                    enabledNetwork.copy(updatedAt = System.currentTimeMillis()),
+                )
+            }
+            container.vpnController.onEnabledChanged(enabledNetwork, true)
+            onSaved(n.id)
         }
     }
 
@@ -149,10 +164,7 @@ fun NetworkEditorScreen(
                 IconButton(onClick = { showImportDialog = true }) {
                     Icon(AppIcons.Upload, "导入 TOML")
                 }
-                IconButton(onClick = {
-                    vm.autoStartAfterSave = false
-                    vm.save { _, _ -> }
-                }) {
+                IconButton(onClick = ::saveOnly) {
                     Icon(AppIcons.Save, "保存")
                 }
             }
@@ -191,21 +203,18 @@ fun NetworkEditorScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(
-                    onClick = {
-                        vm.autoStartAfterSave = false
-                        vm.save { _, _ -> }
-                    },
+                    onClick = ::saveOnly,
                     modifier = Modifier.weight(1f),
                 ) {
                     Icon(AppIcons.Save, null, Modifier.size(18.dp))
                     Text("保存", Modifier.padding(start = 6.dp))
                 }
                 Button(
-                    onClick = ::saveAndRun,
+                    onClick = ::saveAndEnable,
                     modifier = Modifier.weight(1f),
                 ) {
                     Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
-                    Text("保存并运行", Modifier.padding(start = 6.dp))
+                    Text("保存并启用", Modifier.padding(start = 6.dp))
                 }
             }
         }

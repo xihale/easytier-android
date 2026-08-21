@@ -102,11 +102,12 @@ data class PortForwardEntry(
     @SerialName("proto") val proto: String = "tcp",
 )
 
-/** 已保存的网络条目（配置 + 展示元数据）。 */
+/** 已保存的网络条目（配置 + 展示元数据）。enabled = 服务启动时加入该网络。 */
 @Serializable
 data class SavedNetwork(
     val id: String, // instance_id（UUID）
     val config: NetworkConfig,
+    val enabled: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
 )

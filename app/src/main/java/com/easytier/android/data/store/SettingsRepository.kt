@@ -14,6 +14,7 @@ private val Context.settingsDataStore by preferencesDataStore(name = "settings")
 /** 应用设置。 */
 data class AppSettings(
     val themeMode: String = "system", // system | light | dark
+    val enableVpn: Boolean = true,
     val autoStartOnBoot: Boolean = false,
     val autoStartNetworkId: String? = null,
     val enableSocks5: Boolean = false,
@@ -27,6 +28,7 @@ class SettingsRepository(private val context: Context) {
 
     private object Keys {
         val THEME = stringPreferencesKey("theme_mode")
+        val ENABLE_VPN = booleanPreferencesKey("enable_vpn")
         val AUTO_START = booleanPreferencesKey("auto_start_on_boot")
         val AUTO_START_ID = stringPreferencesKey("auto_start_network_id")
         val SOCKS5_ENABLED = booleanPreferencesKey("socks5_enabled")
@@ -36,12 +38,16 @@ class SettingsRepository(private val context: Context) {
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { p ->
         AppSettings(
             themeMode = p[Keys.THEME] ?: "system",
+            enableVpn = p[Keys.ENABLE_VPN] ?: true,
             autoStartOnBoot = p[Keys.AUTO_START] ?: false,
             autoStartNetworkId = p[Keys.AUTO_START_ID],
             enableSocks5 = p[Keys.SOCKS5_ENABLED] ?: false,
             socks5Port = p[Keys.SOCKS5_PORT] ?: 1080,
         )
     }
+
+    suspend fun setVpnEnabled(enabled: Boolean) =
+        context.settingsDataStore.edit { it[Keys.ENABLE_VPN] = enabled }
 
     suspend fun setThemeMode(mode: String) =
         context.settingsDataStore.edit { it[Keys.THEME] = mode }

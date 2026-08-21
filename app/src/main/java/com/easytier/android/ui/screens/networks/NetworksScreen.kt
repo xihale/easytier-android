@@ -1,6 +1,8 @@
 package com.easytier.android.ui.screens.networks
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,28 +18,31 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -55,8 +61,10 @@ import com.easytier.android.ui.icons.AppIcons
 import com.easytier.android.util.Format
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** 首页 ViewModel：网络列表 + 运行状态 + 服务开关状态。 */
 class NetworksViewModel(val container: AppContainer) : ViewModel() {
@@ -66,32 +74,35 @@ class NetworksViewModel(val container: AppContainer) : ViewModel() {
 
     val states = container.engine.states
 
-    /** 服务（TUN）开关状态。 */
+    /** 服务（引擎 + TUN）开关状态。 */
     val serviceRunning = container.vpnController.serviceRunning
 
-    /** 启动单个网络（与服务无关）。 */
-    fun start(network: SavedNetwork) =
-        viewModelScope.launch { container.vpnController.startNetwork(network) }
+    /** 勾选/取消勾选网络：持久化 + 服务运行中同步引擎。 */
+    fun setEnabled(network: SavedNetwork, enabled: Boolean) =
+        viewModelScope.launch {
+            container.networksRepository.save(
+                network.copy(enabled = enabled, updatedAt = System.currentTimeMillis()),
+            )
+            container.vpnController.onEnabledChanged(network, enabled)
+        }
 
-    fun stop(network: SavedNetwork) =
-        viewModelScope.launch { container.vpnController.stopNetwork(network) }
+    /** 启动服务（引擎 + 勾选网络）；没有勾选的网络时报错并不启动。 */
+    fun startService(enabledNetworks: List<SavedNetwork>): String? =
+        container.vpnController.startService(enabledNetworks).exceptionOrNull()?.message
 
-    /** 启动服务（TUN）；没有运行中的网络时报错并不启动。 */
-    fun startService(): String? =
-        container.vpnController.startService().exceptionOrNull()?.message
-
-    /** 停止服务（仅关 TUN），网络保持运行。 */
+    /** 停止服务（引擎 + TUN 全停）。 */
     fun stopService() = container.vpnController.stopService()
 
     fun delete(network: SavedNetwork) =
         viewModelScope.launch {
+            container.vpnController.stopNetwork(network)
             container.networksRepository.delete(network.id)
         }
 }
 
 /**
- * 网络（首页）：服务级 Hero 开关（TUN）+ 全部网络列表。
- * 服务与网络解耦：网络独立启停；服务只为运行中的网络建立 TUN。
+ * 网络（首页）：服务级 Hero 开关（引擎 + TUN）+ 勾选式网络列表。
+ * 勾选 = 服务启动时加入；右滑卡片编辑，左滑删除（露出色块 + icon）。
  */
 @Composable
 fun NetworksScreen(
@@ -111,13 +122,19 @@ fun NetworksScreen(
         scope.launch { snackbar.showSnackbar(message) }
     }
 
-    // 开启服务（TUN）前先确保 VPN 已授权；授权通过后再真正启动
-    val startServiceWithPermission = rememberWithVpnPermission {
-        vm.startService()?.let { showSnack(it) }
+    // VPN 关闭（仅引擎模式）时无需系统 VPN 权限
+    val enableVpn by remember(container) {
+        container.settingsRepository.settings.map { it.enableVpn }
+    }.collectAsState(initial = true)
+
+    // 开启服务（引擎）前先确保 VPN 已授权；授权通过后再真正启动
+    val startServiceWithPermission = rememberWithVpnPermission(enabled = enableVpn) {
+        vm.startService(networks.filter { it.enabled })?.let { showSnack(it) }
     }
 
     // ---- 服务级聚合状态 ----
     val activeCount = states.values.count { it is InstanceState.Running || it is InstanceState.Starting }
+    val enabledCount = networks.count { it.enabled }
     val runningInfos = networks.mapNotNull { n ->
         (states[n.config.networkName] as? InstanceState.Running)?.let { n to it.info }
     }
@@ -140,10 +157,9 @@ fun NetworksScreen(
                 ServiceHeroCard(
                     running = serviceRunning,
                     statusText = when {
-                        !serviceRunning && activeCount == 0 -> "未运行"
-                        !serviceRunning -> "服务关闭 · $activeCount 个网络运行中"
-                        activeCount == 0 -> "服务开启 · 无运行中网络"
-                        else -> "运行中 · $activeCount 个网络"
+                        !serviceRunning && enabledCount == 0 -> "未运行 · 未勾选网络"
+                        !serviceRunning -> "未运行 · 已勾选 $enabledCount 个网络"
+                        else -> "运行中 · $activeCount/${networks.size} 个网络"
                     },
                     headline = when {
                         runningInfos.isEmpty() -> null
@@ -186,11 +202,12 @@ fun NetworksScreen(
                 NetworkCard(
                     network = network,
                     state = states[network.config.networkName],
-                    onToggle = { on ->
-                        if (on) vm.start(network) else vm.stop(network)
-                    },
+                    onToggleEnabled = { on -> vm.setEnabled(network, on) },
                     onEdit = { onEditNetwork(network.id) },
-                    onDelete = { vm.delete(network) },
+                    onDelete = {
+                        vm.delete(network)
+                        showSnack("已删除 ${network.config.networkName}")
+                    },
                 )
             }
         }
@@ -207,18 +224,27 @@ fun NetworksScreen(
     }
 }
 
-/** 网络卡片：左侧状态色图标 + 名称/副标题 + 开关 + 菜单。 */
+/** 左滑操作阈值：超过则触发删除。 */
+private val SWIPE_ACTION_THRESHOLD = 96.dp
+
+/**
+ * 网络卡片：Checkbox 勾选（服务启动时加入）+ 状态色图标 + 名称。
+ * 右滑露出编辑 icon 并进入编辑页；左滑露出删除 icon 并删除。
+ */
 @Composable
 private fun NetworkCard(
     network: SavedNetwork,
     state: InstanceState?,
-    onToggle: (Boolean) -> Unit,
+    onToggleEnabled: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
     val running = state is InstanceState.Running || state is InstanceState.Starting
     val accent = stateAccent(state)
+    var offsetX by remember(network.id) { mutableFloatStateOf(0f) }
+    val thresholdPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+        SWIPE_ACTION_THRESHOLD.toPx()
+    }
     val (subtitle, subtitleColor) = when (state) {
         is InstanceState.Running -> (
             state.info.myNodeInfo?.virtualIpv4?.toIpString()?.let { "运行中 · $it" } ?: "运行中"
@@ -229,50 +255,113 @@ private fun NetworkCard(
             MaterialTheme.colorScheme.onSurfaceVariant
     }
 
-    AppCard {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    Box(Modifier.fillMaxWidth()) {
+        // 底层操作区：左滑露出右侧整块红色删除区，右滑露出左侧编辑区
+        Row(Modifier.matchParentSize()) {
+            // 右滑编辑：左侧蓝底
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Edit,
+                    "右滑编辑",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+            // 左滑删除：右侧红底
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Delete,
+                    "左滑删除",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        }
+
+        AppCard(
+            modifier = Modifier
+                .offset { IntOffset(offsetX.roundToInt(), 0) }
+                .pointerInput(network.id) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            when {
+                                offsetX <= -thresholdPx -> {
+                                    offsetX = 0f
+                                    onDelete()
+                                }
+                                offsetX >= thresholdPx -> {
+                                    offsetX = 0f
+                                    onEdit()
+                                }
+                                else -> offsetX = 0f // 未达阈值回弹
+                            }
+                        },
+                    ) { change, dragAmount ->
+                        change.consume()
+                        offsetX = (offsetX + dragAmount).coerceIn(
+                            -thresholdPx * 1.6f,
+                            thresholdPx * 1.6f,
+                        )
+                    }
+                },
         ) {
-            // 状态色图标底座：颜色即状态，不再单独放一个状态图标
-            Icon(
-                AppIcons.Work,
-                null,
-                tint = accent,
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(accent.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
-                    .padding(10.dp),
-            )
-            Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                Text(
-                    network.config.networkName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onEdit() }
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = network.enabled,
+                    onCheckedChange = onToggleEnabled,
                 )
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = subtitleColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
+                Icon(
+                    AppIcons.Work,
+                    null,
+                    tint = accent,
+                    modifier = Modifier
+                        .padding(start = 4.dp)
+                        .size(40.dp)
+                        .background(accent.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+                        .padding(10.dp),
                 )
-            }
-            Switch(checked = running, onCheckedChange = onToggle)
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(Icons.Filled.MoreVert, "菜单")
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text("编辑") },
-                    onClick = { menuOpen = false; onEdit() },
-                )
-                DropdownMenuItem(
-                    text = { Text("删除", color = MaterialTheme.colorScheme.error) },
-                    onClick = { menuOpen = false; onDelete() },
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text(
+                        network.config.networkName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = subtitleColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                // 右缘滑动提示：双向箭头
+                Icon(
+                    AppIcons.ExpandMore,
+                    null,
+                    tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                    modifier = Modifier
+                        .padding(end = 4.dp)
+                        .size(18.dp)
+                        .rotate(-90f),
                 )
             }
         }
