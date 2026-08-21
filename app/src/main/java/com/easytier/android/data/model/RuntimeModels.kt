@@ -205,3 +205,25 @@ data class PeerConnStats(
 
 @Serializable
 data class UrlValue(val url: String = "")
+
+/** 延迟徽标配色档位：NEUTRAL 用于「连接中」等未知状态。 */
+enum class LatencyTier { NEUTRAL, GOOD, FAIR, BAD }
+
+/** 对等节点延迟徽标内容。 */
+data class PeerLatencyBadge(val connecting: Boolean, val text: String, val tier: LatencyTier)
+
+/**
+ * 对等节点延迟展示规则：
+ * EasyTier 用 ≥1000ms（或 0）表示尚未测得延迟，此时回退到路径延迟；
+ * 两者都不可用则视为「连接中」。测得值 <80 良好、<200 一般、其余较差。
+ */
+fun peerLatencyBadge(connLatencyMs: Long?, pathLatency: Long): PeerLatencyBadge {
+    val measured = connLatencyMs?.takeIf { it in 1 until 1000 }
+    val effective = measured ?: pathLatency.takeIf { it > 0 }
+    return when {
+        effective == null -> PeerLatencyBadge(true, "连接中", LatencyTier.NEUTRAL)
+        effective < 80 -> PeerLatencyBadge(false, "$effective ms", LatencyTier.GOOD)
+        effective < 200 -> PeerLatencyBadge(false, "$effective ms", LatencyTier.FAIR)
+        else -> PeerLatencyBadge(false, "$effective ms", LatencyTier.BAD)
+    }
+}

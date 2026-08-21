@@ -44,7 +44,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.easytier.android.AppContainer
 import com.easytier.android.core.engine.InstanceState
 import com.easytier.android.data.model.NetworkInstanceRunningInfo
+import com.easytier.android.data.model.LatencyTier
 import com.easytier.android.data.model.PeerRoutePair
+import com.easytier.android.data.model.peerLatencyBadge
 import com.easytier.android.data.model.peerRoutePairs
 
 import com.easytier.android.data.model.publicIps
@@ -392,12 +394,7 @@ private fun PeerCard(pair: PeerRoutePair, networkName: String? = null) {
     val statusColors = LocalStatusColors.current
     val route = pair.route
     val conn = pair.defaultConn
-    val connLatencyRaw = conn?.stats?.latencyMs ?: -1
-    // EasyTier 用 ≥1000ms（或 0）表示尚未测得延迟；未测得时回退到路径延迟
-    val connMeasured = connLatencyRaw in 1 until 1000
-    val latency = if (connMeasured) connLatencyRaw else route.pathLatency.takeIf { it > 0 } ?: -1
-    // 连接中：有隧道但延迟未测得，或暂时没有任何可用的延迟信息
-    val connecting = !connMeasured && latency <= 0
+    val connLatencyRaw = conn?.stats?.latencyMs
     val loss = (conn?.lossRate ?: 0f) * 100
     val isDirect = route.isDirect
     val hostname = route.hostname.takeIf { it.isNotBlank() } ?: "peer-${route.peerId}"
@@ -410,16 +407,17 @@ private fun PeerCard(pair: PeerRoutePair, networkName: String? = null) {
         else -> "中转(${route.cost})"
     }
 
-    // 延迟分级：连接中/未知用中性色；<80 良好，<200 一般，其余较差
-    val (latencyText, latencyContainer, latencyLabel) = when {
-        connecting -> Triple(
-            "连接中",
+    // 延迟分级：连接中/未知用中性色；<80 良好，<200 一般，其余较差（规则见 peerLatencyBadge）
+    val badge = peerLatencyBadge(connLatencyRaw, route.pathLatency)
+    val (latencyText, latencyContainer, latencyLabel) = when (badge.tier) {
+        LatencyTier.NEUTRAL -> Triple(
+            badge.text,
             MaterialTheme.colorScheme.surfaceContainerHigh,
             MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        latency < 80 -> Triple("${latency} ms", statusColors.successContainer, statusColors.onSuccessContainer)
-        latency < 200 -> Triple("${latency} ms", statusColors.warningContainer, statusColors.onWarningContainer)
-        else -> Triple("${latency} ms", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+        LatencyTier.GOOD -> Triple(badge.text, statusColors.successContainer, statusColors.onSuccessContainer)
+        LatencyTier.FAIR -> Triple(badge.text, statusColors.warningContainer, statusColors.onWarningContainer)
+        LatencyTier.BAD -> Triple(badge.text, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
     }
 
     AppCard {
