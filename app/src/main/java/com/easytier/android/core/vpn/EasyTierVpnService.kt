@@ -23,7 +23,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-
 /**
  * EasyTier VPN 前台服务。
  *
@@ -39,9 +38,6 @@ class EasyTierVpnService : VpnService() {
     private var multicastLock: WifiManager.MulticastLock? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // 停核专用作用域：不随 onDestroy 取消，保证 stop 在服务销毁后仍能执行完毕
-    private val stopScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
     private var currentIpv4: String? = null
     private var currentProxyCidrs: List<String> = emptyList()
 
@@ -53,8 +49,15 @@ class EasyTierVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                // 通知栏停止：停 TUN + 停全部网络实例（服务与网络一起关）
                 stopVpn()
-                stopInstance("用户请求停止")
+                stopAllExternally()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_STOP_TUN -> {
+                // 仅关 TUN 与前台服务，不动核心实例（服务/网络解耦）
+                stopVpn()
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -190,26 +193,16 @@ class EasyTierVpnService : VpnService() {
 
     override fun onRevoke() {
         stopVpn()
-        stopInstance("VPN 授权被系统撤销或被其他 VPN 抢占")
+        // 服务与网络解耦：VPN 被抢占只重置服务开关，核心实例继续运行
+        runCatching { EasyTierApp.get().container.vpnController.onTunRevoked() }
+            .onFailure { Log.w(TAG, "重置服务状态失败", it) }
         stopSelf()
     }
 
-    /**
-     * 停止当前实例对应的 Rust 核心。
-     *
-     * VPN 被抢占（onRevoke）或用户从通知栏停止时，若只关 TUN 不停核心，
-     * 核心会以无 TUN 状态继续挂在网络里（僵尸节点），表现为延迟暴涨、P2P 假失败。
-     * engine.stop 对未知/已停实例安全幂等，与 VpnController.stopNetwork 的重复调用无副作用。
-     */
-    private fun stopInstance(reason: String) {
-        val name = instanceName ?: return
-        Log.i(TAG, "停止核心实例 $name（$reason）")
-        runCatching { EasyTierApp.get().container.engine }
-            .onSuccess { engine ->
-                // 必须用独立作用域：onDestroy 会取消 scope，若复用会被中途取消导致核心残留
-                stopScope.launch { engine.stop(name) }
-            }
-            .onFailure { Log.w(TAG, "获取引擎失败，跳过停止核心实例", it) }
+    /** 通知栏停止：重置服务开关并停止全部核心实例。 */
+    private fun stopAllExternally() {
+        runCatching { EasyTierApp.get().container.vpnController.onStoppedExternally() }
+            .onFailure { Log.w(TAG, "获取容器失败，跳过停止核心实例", it) }
     }
 
     override fun onDestroy() {
@@ -262,6 +255,7 @@ class EasyTierVpnService : VpnService() {
         const val EXTRA_IPV4 = "ipv4_address"
         const val EXTRA_PROXY_CIDRS = "proxy_cidrs"
         const val ACTION_STOP = "com.easytier.android.STOP_VPN"
+        const val ACTION_STOP_TUN = "com.easytier.android.STOP_VPN_TUN"
 
         /** 便捷启动。 */
         fun start(context: Context, instanceName: String, ipv4Cidr: String, proxyCidrs: List<String>) {
@@ -272,9 +266,10 @@ class EasyTierVpnService : VpnService() {
             context.startService(intent)
         }
 
-        fun stop(context: Context) {
+        /** 仅关闭 TUN 与前台服务，核心实例不受影响（服务/网络解耦）。 */
+        fun stopTun(context: Context) {
             context.startService(
-                Intent(context, EasyTierVpnService::class.java).setAction(ACTION_STOP),
+                Intent(context, EasyTierVpnService::class.java).setAction(ACTION_STOP_TUN),
             )
         }
 

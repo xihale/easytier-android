@@ -17,6 +17,28 @@ object RuntimeJson {
     }
 }
 
+/** 是否本地/内网地址（不对外展示为公网 IP）。 */
+fun isLocalAddress(ip: String): Boolean {
+    val v = ip.trim().substringBefore('%').lowercase()
+    return when {
+        v == "::1" || v == "::" || v == "localhost" -> true
+        v.startsWith("127.") -> true
+        v.startsWith("10.") -> true
+        v.startsWith("192.168.") -> true
+        v.startsWith("169.254.") || v.startsWith("fe80") || v.startsWith("fe90") -> true
+        v.startsWith("172.") -> {
+            val second = v.split('.').getOrNull(1)?.toIntOrNull() ?: 0
+            second in 16..31
+        }
+        v.startsWith("fc") || v.startsWith("fd") -> true // IPv6 ULA
+        else -> false
+    }
+}
+
+/** 公网 IP 列表：过滤本地/内网地址（::1、127.x、192.168.x 等不展示）。 */
+fun StunInfo.publicIps(): List<String> = publicIp
+    .filter { it.isNotBlank() && !isLocalAddress(it) }
+
 @Serializable
 data class NetworkInstanceRunningInfoMap(
     val map: Map<String, NetworkInstanceRunningInfo> = emptyMap(),

@@ -39,8 +39,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,11 +59,9 @@ import com.easytier.android.data.model.SavedNetwork
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.StringListEditor
 import com.easytier.android.ui.components.SwitchRow
-import com.easytier.android.ui.components.rememberWithVpnPermission
 import com.easytier.android.ui.icons.AppIcons
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** 编辑页 ViewModel。 */
@@ -115,8 +111,8 @@ fun NetworkEditorScreen(
 ) {
     val vm: EditorViewModel = viewModel { EditorViewModel(container) }
     val network by vm.network.collectAsState()
-    val scope = rememberCoroutineScope()
-    val settings by container.settingsRepository.settings.collectAsState(initial = null)
+
+
 
     LaunchedEffect(networkId) { vm.load(networkId) }
 
@@ -127,20 +123,13 @@ fun NetworkEditorScreen(
 
     val saved = network ?: return
 
-    // VPN 授权后再运行；只存网络 id，授权框遮挡导致 Activity 重建后凭 id 从仓库重查
-    var pendingRunId by rememberSaveable { mutableStateOf<String?>(null) }
-    val runWithVpnPermission = rememberWithVpnPermission {
-        pendingRunId?.let { id ->
-            pendingRunId = null
-            scope.launch {
-                container.networksRepository.get(id)?.let { n ->
-                    val withVpn = container.settingsRepository.settings.first().startVpnWithNetwork
-                    container.vpnController.startNetwork(n, withVpn)
-                }
-            }
+    // 保存并运行：直接启动网络实例（与服务/TUN 解耦，无需 VPN 授权）
+    fun saveAndRun() {
+        vm.autoStartAfterSave = true
+        vm.save { n, _ ->
+            container.vpnController.startNetwork(n)
+            onBack()
         }
-        // 启动已发起（或无需授权）后再返回；授权弹窗期间留在本页，避免 launcher 随页面销毁
-        onBack()
     }
 
     Scaffold(
@@ -212,18 +201,7 @@ fun NetworkEditorScreen(
                     Text("保存", Modifier.padding(start = 6.dp))
                 }
                 Button(
-                    onClick = {
-                        vm.autoStartAfterSave = true
-                        vm.save { n, _ ->
-                            if (settings?.startVpnWithNetwork != false) {
-                                pendingRunId = n.id
-                                runWithVpnPermission()
-                            } else {
-                                container.vpnController.startNetwork(n, withVpn = false)
-                                onBack()
-                            }
-                        }
-                    },
+                    onClick = ::saveAndRun,
                     modifier = Modifier.weight(1f),
                 ) {
                     Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))

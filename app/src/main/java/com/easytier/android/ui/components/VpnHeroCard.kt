@@ -28,8 +28,9 @@ import androidx.compose.ui.unit.dp
 import com.easytier.android.ui.icons.AppIcons
 
 /**
- * 首页 Hero 卡：EasyTier 服务总开关（与下面各网络的启用开关解耦）。
- * 开 = 启动服务（拉起全部网络），关 = 停止全部。
+ * 首页 Hero 卡：EasyTier 服务（TUN）开关，与下面各网络的启停开关解耦。
+ * 开 = 建立系统 VPN（TUN）；关 = 仅关闭 TUN，网络实例不受影响。
+ * headline 为 null 时不渲染大字行（不再显示提示文案）。
  * 渐变用固定深蓝（不取主题色）：深色主题下 primary 是浅色，白字会失去对比度；
  * 未运行时用灰色渐变弱化。
  */
@@ -37,7 +38,7 @@ import com.easytier.android.ui.icons.AppIcons
 fun ServiceHeroCard(
     running: Boolean,
     statusText: String,
-    headline: String,
+    headline: String?,
     stats: List<String>,
     onToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -62,7 +63,7 @@ fun ServiceHeroCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    AppIcons.VpnKey,
+                    AppIcons.Shield,
                     null,
                     tint = Color.White,
                     modifier = Modifier
@@ -100,13 +101,15 @@ fun ServiceHeroCard(
             )
         }
 
-        Spacer(Modifier.height(16.dp))
-        Text(
-            headline,
-            style = MaterialTheme.typography.headlineSmall,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-        )
+        if (headline != null) {
+            Spacer(Modifier.height(16.dp))
+            Text(
+                headline,
+                style = MaterialTheme.typography.headlineSmall,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+            )
+        }
 
         if (stats.isNotEmpty()) {
             Row(

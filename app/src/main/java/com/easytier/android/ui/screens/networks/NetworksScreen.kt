@@ -22,6 +22,8 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,7 +31,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,12 +45,10 @@ import com.easytier.android.AppContainer
 import com.easytier.android.core.engine.InstanceState
 import com.easytier.android.data.model.NetworkingMethod
 import com.easytier.android.data.model.SavedNetwork
-import com.easytier.android.data.store.AppSettings
 import com.easytier.android.ui.components.AppCard
 import com.easytier.android.ui.components.EmptyState
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.ServiceHeroCard
-import com.easytier.android.ui.components.rememberWithVpnPermission
 import com.easytier.android.ui.components.stateAccent
 import com.easytier.android.ui.icons.AppIcons
 import com.easytier.android.util.Format
@@ -57,7 +57,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** 首页 ViewModel：网络列表 + 运行状态 + 设置快照。 */
+/** 首页 ViewModel：网络列表 + 运行状态 + 服务开关状态。 */
 class NetworksViewModel(val container: AppContainer) : ViewModel() {
 
     val networks = container.networksRepository.networks
@@ -65,26 +65,22 @@ class NetworksViewModel(val container: AppContainer) : ViewModel() {
 
     val states = container.engine.states
 
-    val settings: StateFlow<AppSettings?> = container.settingsRepository.settings
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    /** 服务（TUN）开关状态。 */
+    val serviceRunning = container.vpnController.serviceRunning
 
-    /** 启动单个网络（withVpn 由设置页「VPN 模式」决定）。 */
-    fun start(network: SavedNetwork) {
-        val withVpn = settings.value?.startVpnWithNetwork ?: true
-        viewModelScope.launch { container.vpnController.startNetwork(network, withVpn) }
-    }
+    /** 启动单个网络（与服务无关）。 */
+    fun start(network: SavedNetwork) =
+        viewModelScope.launch { container.vpnController.startNetwork(network) }
 
     fun stop(network: SavedNetwork) =
         viewModelScope.launch { container.vpnController.stopNetwork(network) }
 
-    /** 服务级启动：拉起全部网络。 */
-    fun startAll() {
-        val withVpn = settings.value?.startVpnWithNetwork ?: true
-        container.vpnController.startNetworks(networks.value, withVpn)
-    }
+    /** 启动服务（TUN）；没有运行中的网络时报错并不启动。 */
+    fun startService(): String? =
+        container.vpnController.startService().exceptionOrNull()?.message
 
-    /** 服务级停止：停掉全部网络与 VPN。 */
-    fun stopAll() = container.vpnController.stopAll()
+    /** 停止服务（仅关 TUN），网络保持运行。 */
+    fun stopService() = container.vpnController.stopService()
 
     fun delete(network: SavedNetwork) =
         viewModelScope.launch {
@@ -93,7 +89,8 @@ class NetworksViewModel(val container: AppContainer) : ViewModel() {
 }
 
 /**
- * 网络（首页）：服务级 Hero 总开关 + 全部网络列表（各网络独立启停，可同时运行多个）。
+ * 网络（首页）：服务级 Hero 开关（TUN）+ 全部网络列表。
+ * 服务与网络解耦：网络独立启停；服务只为运行中的网络建立 TUN。
  */
 @Composable
 fun NetworksScreen(
@@ -105,41 +102,16 @@ fun NetworksScreen(
     val vm: NetworksViewModel = viewModel { NetworksViewModel(container) }
     val networks by vm.networks.collectAsState()
     val states by vm.states.collectAsState()
-    val settings by vm.settings.collectAsState()
+    val serviceRunning by vm.serviceRunning.collectAsState()
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
-    // VPN 授权后再启动；待启动目标只存 id（授权框遮挡期间 Activity 重建后对象引用会失效）
-    var pendingStartId by rememberSaveable { mutableStateOf<String?>(null) }
-    var pendingStartAll by rememberSaveable { mutableStateOf(false) }
-    val networksState = networks
-    val startWithVpnPermission = rememberWithVpnPermission {
-        if (pendingStartAll) {
-            pendingStartAll = false
-            vm.startAll()
-        } else {
-            pendingStartId?.let { id ->
-                pendingStartId = null
-                networksState.firstOrNull { it.id == id }?.let(vm::start)
-            }
-        }
-    }
-
-    // VPN 模式关闭时无需系统授权，直接启动
-    val vpnEnabled = settings?.startVpnWithNetwork ?: true
-    fun launchWithPermission(startAll: Boolean, networkId: String? = null) {
-        if (vpnEnabled) {
-            pendingStartAll = startAll
-            pendingStartId = networkId
-            startWithVpnPermission()
-        } else if (startAll) {
-            vm.startAll()
-        } else {
-            networksState.firstOrNull { it.id == networkId }?.let(vm::start)
-        }
+    fun showSnack(message: String) {
+        scope.launch { snackbar.showSnackbar(message) }
     }
 
     // ---- 服务级聚合状态 ----
     val activeCount = states.values.count { it is InstanceState.Running || it is InstanceState.Starting }
-    val serviceRunning = activeCount > 0
     val runningInfos = networks.mapNotNull { n ->
         (states[n.config.networkName] as? InstanceState.Running)?.let { n to it.info }
     }
@@ -152,80 +124,80 @@ fun NetworksScreen(
     val nodeCount = runningInfos.flatMap { (_, info) -> info.peers.map { p -> p.peerId } }.distinct().size +
         (if (runningInfos.isNotEmpty()) 1 else 0) // 含本机节点，对齐官方客户端口径
 
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 108.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                item(key = "hero") {
-                    ServiceHeroCard(
-                        running = serviceRunning,
-                        statusText = when {
-                            !serviceRunning && networks.isEmpty() -> "未运行"
-                            !serviceRunning -> "未运行 · ${networks.size} 个网络待命"
-                            else -> "运行中 · $activeCount/${networks.size} 个网络"
-                        },
-                        headline = when {
-                            runningInfos.isEmpty() -> "开启以启动全部网络"
-                            runningInfos.size == 1 ->
-                                runningInfos[0].second.myNodeInfo?.virtualIpv4?.toIpString() ?: "正在获取虚拟 IP…"
-                            else -> "${runningInfos.size} 个网络运行中"
-                        },
-                        stats = if (!serviceRunning) emptyList() else buildList {
-                            add("$nodeCount 个节点")
-                            add("↑ ${Format.bytes(txTotal)}")
-                            add("↓ ${Format.bytes(rxTotal)}")
-                        },
-                        onToggle = { on ->
-                            if (on) launchWithPermission(startAll = true)
-                            else vm.stopAll()
-                        },
-                        onClick = onOpenStatus,
-                    )
-                }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 108.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item(key = "hero") {
+                ServiceHeroCard(
+                    running = serviceRunning,
+                    statusText = when {
+                        !serviceRunning && activeCount == 0 -> "未运行"
+                        !serviceRunning -> "服务关闭 · $activeCount 个网络运行中"
+                        activeCount == 0 -> "服务开启 · 无运行中网络"
+                        else -> "运行中 · $activeCount 个网络"
+                    },
+                    headline = when {
+                        runningInfos.isEmpty() -> null
+                        runningInfos.size == 1 ->
+                            runningInfos[0].second.myNodeInfo?.virtualIpv4?.toIpString()
+                        else -> "${runningInfos.size} 个网络运行中"
+                    },
+                    stats = if (!serviceRunning || runningInfos.isEmpty()) emptyList() else buildList {
+                        add("$nodeCount 个节点")
+                        add("↑ ${Format.bytes(txTotal)}")
+                        add("↓ ${Format.bytes(rxTotal)}")
+                    },
+                    onToggle = { on ->
+                        if (on) {
+                            vm.startService()?.let { showSnack(it) }
+                        } else {
+                            vm.stopService()
+                        }
+                    },
+                    onClick = onOpenStatus,
+                )
+            }
 
-                item { SectionHeader("我的网络") }
-                if (networks.isEmpty()) {
-                    item(key = "empty") {
-                        AppCard {
-                            Box(Modifier.fillMaxWidth().padding(vertical = 32.dp)) {
-                                EmptyState(
-                                    icon = AppIcons.CloudOff,
-                                    title = "还没有网络",
-                                    hint = "点击右下角「新建网络」创建你的第一个组网",
-                                    modifier = Modifier.align(Alignment.Center),
-                                )
-                            }
+            item { SectionHeader("我的网络") }
+            if (networks.isEmpty()) {
+                item(key = "empty") {
+                    AppCard {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 32.dp)) {
+                            EmptyState(
+                                icon = AppIcons.CloudOff,
+                                title = "还没有网络",
+                                hint = "点击右下角「新建网络」创建你的第一个组网",
+                                modifier = Modifier.align(Alignment.Center),
+                            )
                         }
                     }
                 }
-                items(networks, key = { it.id }) { network ->
-                    NetworkCard(
-                        network = network,
-                        state = states[network.config.networkName],
-                        onToggle = { on ->
-                            if (on) {
-                                launchWithPermission(startAll = false, networkId = network.id)
-                            } else {
-                                vm.stop(network)
-                            }
-                        },
-                        onEdit = { onEditNetwork(network.id) },
-                        onDelete = { vm.delete(network) },
-                    )
-                }
             }
-
-            // 真悬浮 FAB：叠在列表上方，不再占据底部一整行
-            ExtendedFloatingActionButton(
-                onClick = onCreateNetwork,
-                icon = { Icon(Icons.Filled.Add, null) },
-                text = { Text("新建网络") },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-            )
+            items(networks, key = { it.id }) { network ->
+                NetworkCard(
+                    network = network,
+                    state = states[network.config.networkName],
+                    onToggle = { on ->
+                        if (on) vm.start(network) else vm.stop(network)
+                    },
+                    onEdit = { onEditNetwork(network.id) },
+                    onDelete = { vm.delete(network) },
+                )
+            }
         }
+
+        // 真悬浮 FAB：叠在列表上方，不再占据底部一整行
+        ExtendedFloatingActionButton(
+            onClick = onCreateNetwork,
+            icon = { Icon(Icons.Filled.Add, null) },
+            text = { Text("新建网络") },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        )
+
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
 }
 

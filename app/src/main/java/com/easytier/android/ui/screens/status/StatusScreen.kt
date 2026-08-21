@@ -49,6 +49,7 @@ import com.easytier.android.data.model.NetworkInstanceRunningInfo
 import com.easytier.android.data.model.PeerRoutePair
 import com.easytier.android.data.model.parseHumanEvents
 import com.easytier.android.data.model.peerRoutePairs
+import com.easytier.android.data.model.publicIps
 import com.easytier.android.data.model.publicListeners
 import com.easytier.android.ui.components.AppCard
 import com.easytier.android.ui.components.EmptyState
@@ -214,22 +215,47 @@ fun StatusScreen(
     }
 }
 
+/** 监听胶囊：按端口合并协议，v4/v6 不重复（如 UDP+TCP 11010 / WG 11011）。 */
 @Composable
-private fun ListenerChip(url: String) {
-    val scheme = url.substringBefore("://", missingDelimiterValue = url).uppercase()
-    val rest = url.substringAfter("://", missingDelimiterValue = "")
+private fun ListenerChip(label: String) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(8.dp),
     ) {
         Text(
-            if (rest.isBlank()) scheme else "$scheme  $rest",
+            label,
             style = MaterialTheme.typography.labelMedium,
             fontFamily = FontFamily.Monospace,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
         )
     }
 }
+
+/**
+ * 监听 URL → 按端口分组的标签。
+ * tcp/0.0.0.0:11010 与 tcp://[::]:11010 是同一个端口，只显示一次。
+ * 协议顺序固定（TCP/UDP/WG/WS/WSS/QUIC），端口相同则合并为 "UDP+TCP 11010"。
+ */
+private fun listenerLabels(urls: List<String>): List<String> {
+    data class Entry(val protos: MutableSet<String>, val port: Int?)
+    val byPort = LinkedHashMap<Int?, Entry>()
+    urls.forEach { url ->
+        val scheme = url.substringBefore("://", missingDelimiterValue = "").uppercase()
+        if (scheme.isBlank()) return@forEach
+        val port = url.substringAfterLast(':').trimEnd('/').toIntOrNull()
+        val entry = byPort.getOrPut(port) { Entry(mutableSetOf(), port) }
+        entry.protos.add(scheme)
+    }
+    return byPort.values
+        .sortedBy { it.port ?: Int.MAX_VALUE }
+        .map { e ->
+            val protos = e.protos.toList().sortedBy { PROTO_ORDER.indexOf(it) }
+            val port = e.port?.toString() ?: "--"
+            "${protos.joinToString("+")} $port"
+        }
+}
+
+private val PROTO_ORDER = listOf("TCP", "UDP", "WG", "WS", "WSS", "QUIC", "TLS")
 
 /** 本机节点信息卡：多个运行中网络并列展示。 */
 @OptIn(ExperimentalLayoutApi::class)
@@ -309,7 +335,9 @@ private fun NodeInfoCard(running: List<Pair<String, NetworkInstanceRunningInfo>>
 private fun NodeDetails(info: NetworkInstanceRunningInfo) {
     info.myNodeInfo?.stunInfo?.let { stun ->
         InfoRow("NAT 类型", stun.udpNatType.label)
-        InfoRow("公网 IP", stun.publicIp.filter { it.isNotBlank() }.joinToString("\n").ifBlank { "--" })
+        stun.publicIps().takeIf { it.isNotEmpty() }?.let { ips ->
+            InfoRow("公网 IP", ips.joinToString("\n"))
+        }
     }
     InfoRow("版本", info.myNodeInfo?.version ?: "--")
     val listeners = info.myNodeInfo?.publicListeners().orEmpty()
@@ -317,7 +345,7 @@ private fun NodeDetails(info: NetworkInstanceRunningInfo) {
         "监听",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
     )
     if (listeners.isEmpty()) {
         Text(
@@ -330,7 +358,7 @@ private fun NodeDetails(info: NetworkInstanceRunningInfo) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            listeners.forEach { url -> ListenerChip(url) }
+            listenerLabels(listeners).forEach { label -> ListenerChip(label) }
         }
     }
 }

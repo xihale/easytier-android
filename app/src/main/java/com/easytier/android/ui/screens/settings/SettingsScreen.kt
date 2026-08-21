@@ -5,6 +5,7 @@ import android.net.VpnService
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +21,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -27,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,7 +52,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-
 class SettingsViewModel : ViewModel() {
 
     private val repo: SettingsRepository =
@@ -71,7 +74,6 @@ class SettingsViewModel : ViewModel() {
             BootCompletedReceiver.setEnabled(context, enabled)
         }
 
-    fun setVpnWithNetwork(enabled: Boolean) = launchIO { repo.setVpnWithNetwork(enabled) }
 
     fun setSocks5(enabled: Boolean, port: Int) = launchIO { repo.setSocks5(enabled, port) }
 
@@ -87,38 +89,45 @@ fun SettingsScreen() {
     val vm: SettingsViewModel = viewModel()
     val settings by vm.settings.collectAsState()
     val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showSocks5Dialog by remember { mutableStateOf(false) }
 
-    // VPN 权限申请（prepare 返回非 null 时发起系统授权）
+    // VPN 权限申请：未授权时弹系统授权框；已授权也提示用户当前状态
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
-    ) { }
+    ) { result ->
+        scope.launch {
+            snackbar.showSnackbar(
+                if (result.resultCode == android.app.Activity.RESULT_OK) "VPN 权限已授予"
+                else "未授予 VPN 权限",
+            )
+        }
+    }
     val requestVpnPermission: () -> Unit = {
         val intent = VpnService.prepare(context)
-        if (intent != null) vpnPermissionLauncher.launch(intent)
+        if (intent != null) {
+            vpnPermissionLauncher.launch(intent)
+        } else {
+            scope.launch { snackbar.showSnackbar("VPN 权限已授予") }
+        }
     }
 
     val s = settings ?: return
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-    ) {
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+        ) {
         Column(
             Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             SectionHeader("应用层")
-            SwitchRow(
-                title = "VPN 模式",
-                subtitle = "使用系统 VPN（TUN）接管全部流量；关闭后仅启动核心（SOCKS5 等方式使用）",
-                icon = AppIcons.Shield,
-                checked = s.startVpnWithNetwork,
-                onCheckedChange = { vm.setVpnWithNetwork(it) },
-            )
             SwitchRow(
                 title = "SOCKS5 代理",
                 subtitle = "在本机开启 SOCKS5 服务，作为访问虚拟网络的入口",
@@ -186,6 +195,8 @@ fun SettingsScreen() {
             )
             Spacer(Modifier.height(32.dp))
         }
+        }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
 
     if (showThemeDialog) {

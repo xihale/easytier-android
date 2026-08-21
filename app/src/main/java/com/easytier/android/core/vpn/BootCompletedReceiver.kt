@@ -25,7 +25,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 if (!settings.autoStartOnBoot) return@launch
                 val id = settings.autoStartNetworkId ?: return@launch
                 val network = app.container.networksRepository.get(id) ?: return@launch
-                app.container.vpnController.startNetwork(network, settings.startVpnWithNetwork)
+                // 服务与网络解耦：开机自启 = 先标记服务运行意图再启动网络，TUN 随 IP 就绪建立
+                app.container.vpnController.startServiceWithNetworks(listOf(network))
             } finally {
                 pending.finish()
             }
