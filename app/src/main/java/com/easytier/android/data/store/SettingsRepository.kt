@@ -16,7 +16,6 @@ data class AppSettings(
     val themeMode: String = "system", // system | light | dark
     val enableVpn: Boolean = true,
     val autoStartOnBoot: Boolean = false,
-    val autoStartNetworkId: String? = null,
     val enableSocks5: Boolean = false,
     val socks5Port: Int = 1080,
 )
@@ -30,7 +29,6 @@ class SettingsRepository(private val context: Context) {
         val THEME = stringPreferencesKey("theme_mode")
         val ENABLE_VPN = booleanPreferencesKey("enable_vpn")
         val AUTO_START = booleanPreferencesKey("auto_start_on_boot")
-        val AUTO_START_ID = stringPreferencesKey("auto_start_network_id")
         val SOCKS5_ENABLED = booleanPreferencesKey("socks5_enabled")
         val SOCKS5_PORT = intPreferencesKey("socks5_port")
     }
@@ -40,7 +38,6 @@ class SettingsRepository(private val context: Context) {
             themeMode = p[Keys.THEME] ?: "system",
             enableVpn = p[Keys.ENABLE_VPN] ?: true,
             autoStartOnBoot = p[Keys.AUTO_START] ?: false,
-            autoStartNetworkId = p[Keys.AUTO_START_ID],
             enableSocks5 = p[Keys.SOCKS5_ENABLED] ?: false,
             socks5Port = p[Keys.SOCKS5_PORT] ?: 1080,
         )
@@ -52,11 +49,8 @@ class SettingsRepository(private val context: Context) {
     suspend fun setThemeMode(mode: String) =
         context.settingsDataStore.edit { it[Keys.THEME] = mode }
 
-    suspend fun setAutoStart(enabled: Boolean, networkId: String?) =
-        context.settingsDataStore.edit {
-            it[Keys.AUTO_START] = enabled
-            if (networkId != null) it[Keys.AUTO_START_ID] = networkId
-        }
+    suspend fun setAutoStart(enabled: Boolean) =
+        context.settingsDataStore.edit { it[Keys.AUTO_START] = enabled }
 
     suspend fun setSocks5(enabled: Boolean, port: Int) =
         context.settingsDataStore.edit {

@@ -68,8 +68,7 @@ class SettingsViewModel : ViewModel() {
 
     fun setAutoStart(context: android.content.Context, enabled: Boolean) =
         launchIO {
-            val current = settings.value
-            repo.setAutoStart(enabled, current?.autoStartNetworkId)
+            repo.setAutoStart(enabled)
             // 同步启用/禁用开机广播接收器组件，否则开关只是存了个数字
             BootCompletedReceiver.setEnabled(context, enabled)
         }
@@ -161,7 +160,7 @@ fun SettingsScreen() {
             }
             SwitchRow(
                 title = "开机自启",
-                subtitle = "设备开机后自动启动选定的网络",
+                subtitle = "设备开机后自动启动服务，拉起全部勾选的网络",
                 icon = AppIcons.Terminal,
                 checked = s.autoStartOnBoot,
                 onCheckedChange = { vm.setAutoStart(context, it) },
