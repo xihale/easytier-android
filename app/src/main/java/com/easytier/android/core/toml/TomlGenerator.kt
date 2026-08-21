@@ -71,6 +71,21 @@ object TomlGenerator {
             .ifEmpty { listOf("tcp://0.0.0.0:11010", "udp://0.0.0.0:11010", "wg://0.0.0.0:11011") }
         sb.appendLine("listeners = [${listeners.joinToString(", ") { "\"${escape(it)}\"" }}]")
 
+        // SOCKS5：核心 TOML 结构（toml.rs Config）中的顶层键是 socks5_proxy URL，
+        // 不是 [flags]；必须在任何 [table] 头之前写出。
+        if (config.enableSocks5 == true) {
+            val port = config.socks5Port ?: 1080
+            sb.appendLine("socks5_proxy = \"socks5://0.0.0.0:$port\"")
+        }
+
+        // 出口节点：同样是核心 Config 的顶层键（Vec<IpAddr>）
+        val exitNodes = config.exitNodes.orEmpty().filter { it.isNotBlank() }
+        if (exitNodes.isNotEmpty()) {
+            sb.appendLine(
+                "exit_nodes = [${exitNodes.joinToString(", ") { "\"${escape(it)}\"" }}]",
+            )
+        }
+
         sb.appendLine()
         sb.appendLine("[network_identity]")
         sb.appendLine("network_name = \"${escape(config.networkName)}\"")
@@ -148,10 +163,6 @@ object TomlGenerator {
         config.disableRelayData?.let { flags["disable_relay_data"] = it }
         config.enableUdpBroadcastRelay?.let { flags["enable_udp_broadcast_relay"] = it }
         config.disableIpv6?.let { flags["enable_ipv6"] = !it }
-        if (config.enableSocks5 == true) {
-            flags["enable_socks5"] = true
-            config.socks5Port?.let { flags["socks5_port"] = it }
-        }
         config.dataCompressAlgo?.let { flags["data_compress_algo"] = it }
         config.encryptionAlgorithm?.let { flags["encryption_algorithm"] = it }
         config.devName?.takeIf { it.isNotBlank() }?.let { flags["dev_name"] = it }

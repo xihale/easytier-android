@@ -34,12 +34,16 @@ class TomlRoundTripTest {
     }
 
     @Test
-    fun `socks5 enabled emits both flags with port`() {
+    fun `socks5 enabled emits top-level socks5_proxy before tables`() {
         val toml = TomlGenerator.generate(
             NetworkConfig(networkName = "n", enableSocks5 = true, socks5Port = 1080),
         )
-        assertTrue(toml.contains("enable_socks5 = true"))
-        assertTrue(toml.contains("socks5_port = 1080"))
+        // 核心只认顶层键 socks5_proxy（toml.rs Config），不是 [flags]
+        assertTrue(toml.contains("socks5_proxy = \"socks5://0.0.0.0:1080\""))
+        assertFalse(toml.contains("enable_socks5"))
+        assertFalse(toml.contains("socks5_port"))
+        // 顶层键必须在第一个 [table] 头之前
+        assertTrue(toml.indexOf("socks5_proxy") < toml.indexOf("[network_identity]"))
     }
 
     @Test
@@ -99,17 +103,15 @@ class TomlRoundTripTest {
     }
 
     @Test
-    fun `importer reads external toml with socks5 flags`() {
+    fun `importer reads external toml with socks5 proxy`() {
         val parsed = TomlImporter.parse(
             """
             instance_name = "ext"
             dhcp = true
             listeners = ["tcp://0.0.0.0:11010"]
+            socks5_proxy = "socks5://0.0.0.0:7890"
             [network_identity]
             network_name = "ext"
-            [flags]
-            enable_socks5 = true
-            socks5_port = 7890
             """.trimIndent(),
         ).getOrThrow()
         assertEquals("ext", parsed.networkName)
@@ -131,6 +133,19 @@ class TomlRoundTripTest {
         assertTrue(toml.contains("network_secret = \"pw\\nline\""))
         // 生成结果必须仍可被解析回来
         assertEquals("na\"me\\x", TomlImporter.parse(toml).getOrThrow().networkName)
+    }
+
+    @Test
+    fun `exit nodes emitted top-level and survive round trip`() {
+        val toml = TomlGenerator.generate(
+            NetworkConfig(networkName = "n", exitNodes = listOf("10.126.126.1", "10.126.126.2")),
+        )
+        assertTrue(toml.contains("exit_nodes = [\"10.126.126.1\", \"10.126.126.2\"]"))
+        assertTrue(toml.indexOf("exit_nodes") < toml.indexOf("[network_identity]"))
+        val parsed = TomlImporter.parse(toml).getOrThrow()
+        assertEquals(listOf("10.126.126.1", "10.126.126.2"), parsed.exitNodes)
+        val empty = TomlGenerator.generate(NetworkConfig(networkName = "n"))
+        assertFalse(empty.contains("exit_nodes"))
     }
 
     @Test
