@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -27,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -117,6 +119,7 @@ fun NetworksScreen(
     val serviceRunning by vm.serviceRunning.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    var pendingDelete by remember { mutableStateOf<SavedNetwork?>(null) }
 
     fun showSnack(message: String) {
         scope.launch { snackbar.showSnackbar(message) }
@@ -204,12 +207,28 @@ fun NetworksScreen(
                     state = states[network.config.networkName],
                     onToggleEnabled = { on -> vm.setEnabled(network, on) },
                     onEdit = { onEditNetwork(network.id) },
-                    onDelete = {
-                        vm.delete(network)
-                        showSnack("已删除 ${network.config.networkName}")
-                    },
+                    onDelete = { pendingDelete = network },
                 )
             }
+        }
+
+        // 左滑删除需确认，误滑可撤销（不落库）
+        pendingDelete?.let { target ->
+            AlertDialog(
+                onDismissRequest = { pendingDelete = null },
+                title = { Text("删除网络") },
+                text = { Text("确定删除「${target.config.networkName}」吗？") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        pendingDelete = null
+                        vm.delete(target)
+                        showSnack("已删除 ${target.config.networkName}")
+                    }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingDelete = null }) { Text("取消") }
+                },
+            )
         }
 
         // 真悬浮 FAB：叠在列表上方，不再占据底部一整行
