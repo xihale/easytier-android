@@ -15,6 +15,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * VPN / 网络实例启停编排器。
@@ -35,8 +37,11 @@ class VpnController(
     /** 待建立 TUN 的网络（name -> 配置），IP 就绪即建，实例停止/出错则移除。 */
     private val pendingVpns = mutableMapOf<String, SavedNetwork>()
 
-    /** 已启动实例的配置哈希（name -> hash），用于判断编辑后是否需要重启实例。 */
-    private val runningConfigHashes = mutableMapOf<String, Int>()
+    /** 已启动实例的运行时配置（name -> config），用于判断编辑后是否需要重启、以及端口占用避让。 */
+    private val runningConfigs = mutableMapOf<String, com.easytier.android.data.model.NetworkConfig>()
+
+    /** 串行化启动：并发启动多个实例时端口避让会读到彼此注册前的旧快照。 */
+    private val startMutex = Mutex()
 
     init {
         scope.launch {
@@ -70,6 +75,7 @@ class VpnController(
      */
     fun startNetwork(network: SavedNetwork, withVpn: Boolean) {
         scope.launch {
+            startMutex.withLock {
             val settings = settingsRepository.settings.first()
             // 应用层设置覆盖网络配置里的同名项（编辑器已不再暴露 SOCKS5）
             val config = network.config.copy(
@@ -78,18 +84,33 @@ class VpnController(
             )
             val effective = network.copy(config = config)
             val name = config.networkName
+            // 多实例监听端口避让：默认端口被其他运行实例占用时改用空闲端口，
+            // 否则第二个网络会因 Address already in use 启动失败
+            val usedPorts = runningConfigs.values
+                .flatMap { it.listenerUrls }
+                .mapNotNull { it.substringAfterLast(':').toIntOrNull() }
+                .toMutableSet()
+            val listeners = if (config.listenerUrls.any {
+                    it.substringAfterLast(':').toIntOrNull() in usedPorts
+                }
+            ) {
+                config.listenerUrls.map { url -> avoidPortConflict(url, usedPorts) }
+            } else {
+                config.listenerUrls
+            }
+            val effectiveConfig = config.copy(listenerUrls = listeners)
             // 已在运行：同配置只补建 VPN；配置已变（编辑后保存并运行）则重启实例使新配置生效
-            val configChanged = runningConfigHashes[name] != null &&
-                runningConfigHashes[name] != config.hashCode()
+            val configChanged = runningConfigs[name] != null &&
+                runningConfigs[name] != effectiveConfig
             val alreadyRunning =
                 engine.states.value[name] is InstanceState.Running
             if (alreadyRunning && configChanged) {
                 engine.stop(name)
             }
             if (!alreadyRunning || configChanged) {
-                engine.start(effective, TomlGenerator.generate(config))
+                engine.start(effective, TomlGenerator.generate(effectiveConfig))
                     .onFailure { Log.e(TAG, "实例启动失败: ${it.message}"); return@launch }
-                runningConfigHashes[name] = config.hashCode()
+                runningConfigs[name] = effectiveConfig
             }
             if (withVpn) {
                 if (needsPermission() != null) {
@@ -97,6 +118,7 @@ class VpnController(
                 } else {
                     pendingVpns[name] = effective
                 }
+            }
             }
         }
     }
@@ -106,7 +128,7 @@ class VpnController(
         scope.launch {
             val name = network.config.networkName
             pendingVpns.remove(name)
-            runningConfigHashes.remove(name)
+            runningConfigs.remove(name)
             engine.stop(name)
             val othersActive = engine.states.value.values.any {
                 it is InstanceState.Running || it is InstanceState.Starting
@@ -124,7 +146,7 @@ class VpnController(
     fun stopAll() {
         scope.launch {
             pendingVpns.clear()
-            runningConfigHashes.clear()
+            runningConfigs.clear()
             EasyTierVpnService.stop(context)
             engine.stopAll()
         }
@@ -139,5 +161,15 @@ class VpnController(
 
     companion object {
         private const val TAG = "VpnController"
+
+        /** 监听 URL 的端口被占用时，从原端口 +10 起找一个未占用端口。 */
+        private fun avoidPortConflict(url: String, usedPorts: MutableSet<Int>): String {
+            val port = url.substringAfterLast(':').toIntOrNull() ?: return url
+            if (port !in usedPorts) return url
+            var candidate = port
+            while (candidate in usedPorts) candidate += 10
+            usedPorts.add(candidate)
+            return url.substringBeforeLast(':') + ":" + candidate
+        }
     }
 }
