@@ -199,6 +199,13 @@ fun TomlExportDialog(
                         )
                     }
                 }
+                // 提示导出内容不含本机身份，导入方会自动生成自己的
+                Text(
+                    "不含本机 instance_id，导入方会自动生成自己的身份",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
                 Row(
                     Modifier.fillMaxWidth().padding(top = 4.dp),
                     horizontalArrangement = Arrangement.Center,

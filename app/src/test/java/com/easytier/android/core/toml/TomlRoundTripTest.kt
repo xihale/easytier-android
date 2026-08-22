@@ -261,6 +261,17 @@ class TomlRoundTripTest {
     }
 
     @Test
+    fun `export without instance id omits identity and still parses`() {
+        val config = NetworkConfig(networkName = "share", instanceId = "stable-uuid")
+        val shared = TomlGenerator.generate(config, includeInstanceId = false)
+        assertFalse(shared.contains("instance_id"))
+        // 引擎启动路径默认仍带身份
+        assertTrue(TomlGenerator.generate(config).contains("instance_id = \"stable-uuid\""))
+        // 不带身份的导出仍可正常导入（导入方本就丢弃身份）
+        assertEquals("share", TomlImporter.parse(shared).getOrThrow().networkName)
+    }
+
+    @Test
     fun `diffFromDefaults reports only changed flags`() {
         val diff = TomlGenerator.diffFromDefaults(
             NetworkConfig(networkName = "n", latencyFirst = true, enableSocks5 = true),

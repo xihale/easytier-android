@@ -238,7 +238,8 @@ fun NetworkEditorScreen(
     }
     if (showExportDialog) {
         TomlExportDialog(
-            toml = remember(saved.config) { TomlGenerator.generate(saved.config) },
+            // 导出不带本机 instance_id：对方直接用于核心时避免同 peer_id 互踢
+            toml = remember(saved.config) { TomlGenerator.generate(saved.config, includeInstanceId = false) },
             networkName = saved.config.networkName,
             onDismiss = { showExportDialog = false },
         )
