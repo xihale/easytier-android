@@ -66,6 +66,7 @@ import com.easytier.android.ui.components.TomlImportDialog
 import com.easytier.android.ui.icons.AppIcons
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** 编辑页 ViewModel。 */
@@ -73,6 +74,14 @@ class EditorViewModel(val container: AppContainer) : ViewModel() {
 
     private val _network = MutableStateFlow<SavedNetwork?>(null)
     val network = _network.asStateFlow()
+
+    /** 保存被拦截时的提示，展示后调 consumeSaveError() 清除。 */
+    private val _saveError = MutableStateFlow<String?>(null)
+    val saveError = _saveError.asStateFlow()
+
+    fun consumeSaveError() {
+        _saveError.value = null
+    }
 
     /** 保存后自动启动。 */
     var autoStartAfterSave = false
@@ -97,7 +106,24 @@ class EditorViewModel(val container: AppContainer) : ViewModel() {
     fun save(onSaved: (SavedNetwork, Boolean) -> Unit) {
         val current = _network.value ?: return
         viewModelScope.launch {
-            val updated = current.copy(updatedAt = System.currentTimeMillis())
+            // 引擎按 network_name 组织实例：空名/与其他网络重名都会冲突，统一在落库前拦截
+            val name = current.config.networkName.trim()
+            when {
+                name.isBlank() -> {
+                    _saveError.value = "网络名称不能为空"
+                    return@launch
+                }
+                container.networksRepository.networks.first()
+                    .any { it.id != current.id && it.config.networkName == name } -> {
+                    _saveError.value = "已存在同名网络「$name」，请修改名称后再保存"
+                    return@launch
+                }
+            }
+            val updated = current.copy(
+                config = current.config.copy(networkName = name),
+                updatedAt = System.currentTimeMillis(),
+            )
+            _saveError.value = null
             container.networksRepository.save(updated)
             _network.value = updated
             onSaved(updated, autoStartAfterSave)
@@ -116,8 +142,17 @@ fun NetworkEditorScreen(
 ) {
     val vm: EditorViewModel = viewModel { EditorViewModel(container) }
     val network by vm.network.collectAsState()
+    val saveError by vm.saveError.collectAsState()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+
+    // 保存被拦截（空名/重名）时提示，且不离开编辑页
+    LaunchedEffect(saveError) {
+        saveError?.let {
+            snackbar.showSnackbar(it)
+            vm.consumeSaveError()
+        }
+    }
 
     LaunchedEffect(networkId) { vm.load(networkId) }
 
