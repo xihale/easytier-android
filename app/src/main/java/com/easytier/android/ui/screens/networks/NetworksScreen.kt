@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -53,10 +55,12 @@ import com.easytier.android.AppContainer
 import com.easytier.android.core.engine.InstanceState
 import com.easytier.android.data.model.NetworkingMethod
 import com.easytier.android.data.model.SavedNetwork
+import com.easytier.android.data.store.NetworksRepository
 import com.easytier.android.ui.components.AppCard
 import com.easytier.android.ui.components.EmptyState
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.ServiceHeroCard
+import com.easytier.android.ui.components.TomlImportDialog
 import com.easytier.android.ui.components.rememberWithVpnPermission
 import com.easytier.android.ui.components.stateAccent
 import com.easytier.android.ui.icons.AppIcons
@@ -120,6 +124,7 @@ fun NetworksScreen(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var pendingDelete by remember { mutableStateOf<SavedNetwork?>(null) }
+    var showImportDialog by remember { mutableStateOf(false) }
 
     fun showSnack(message: String) {
         scope.launch { snackbar.showSnackbar(message) }
@@ -186,17 +191,31 @@ fun NetworksScreen(
                 )
             }
 
-            item { SectionHeader("我的网络") }
+            item {
+                SectionHeader("我的网络") {
+                    TextButton(onClick = { showImportDialog = true }) {
+                        Icon(AppIcons.Upload, null, Modifier.size(16.dp))
+                        Text("导入", Modifier.padding(start = 4.dp))
+                    }
+                }
+            }
             if (networks.isEmpty()) {
                 item(key = "empty") {
                     AppCard {
-                        Box(Modifier.fillMaxWidth().padding(vertical = 32.dp)) {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
                             EmptyState(
                                 icon = AppIcons.CloudOff,
                                 title = "还没有网络",
-                                hint = "点击右下角「新建网络」创建你的第一个组网",
-                                modifier = Modifier.align(Alignment.Center),
+                                hint = "点击右下角「新建网络」创建你的第一个组网\n或从 TOML 配置文件导入",
                             )
+                            Spacer(Modifier.height(12.dp))
+                            TextButton(onClick = { showImportDialog = true }) {
+                                Icon(AppIcons.Upload, null, Modifier.size(18.dp))
+                                Text("导入 TOML 配置", Modifier.padding(start = 6.dp))
+                            }
                         }
                     }
                 }
@@ -238,6 +257,25 @@ fun NetworksScreen(
             text = { Text("新建网络") },
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
         )
+
+        // 首页直接导入为新建网络；同名网络会被引擎视为同一实例，拒绝重复导入
+        if (showImportDialog) {
+            TomlImportDialog(
+                initialText = "",
+                onDismiss = { showImportDialog = false },
+                onImported = { cfg ->
+                    showImportDialog = false
+                    if (networks.any { it.config.networkName == cfg.networkName }) {
+                        showSnack("已存在同名网络「${cfg.networkName}」，请先修改其名称或删除")
+                    } else {
+                        scope.launch {
+                            container.networksRepository.save(NetworksRepository.newNetwork(cfg))
+                            showSnack("已导入网络「${cfg.networkName}」，点击卡片可编辑")
+                        }
+                    }
+                },
+            )
+        }
 
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }

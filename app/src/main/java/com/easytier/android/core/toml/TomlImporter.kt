@@ -61,7 +61,6 @@ object TomlImporter {
             peers.size == 1 && isPublicServerUrl(peers[0]) -> NetworkingMethod.PublicServer
             else -> NetworkingMethod.Manual
         }
-
         NetworkConfig(
             instanceId = null, // 导入的身份属于导出方安装，必须换新身份，避免两个客户端同 peer_id 互踢（null 保存时会生成并持久化新 UUID）
             dhcp = toml.getBoolean("dhcp") ?: true,
@@ -137,8 +136,18 @@ object TomlImporter {
         return ip to port
     }
 
+    /** 官方公共服务器域名白名单（含子域名）。 */
+    private val PUBLIC_SERVER_HOSTS = setOf("public.easytier.cn", "public.kkrainbow.top")
+
+    /**
+     * TOML 的 [[peer]] 本身没有“公共服务器/手动节点”之分，这是应用层 UI 概念，
+     * 导入时只能推断。此前用「非内网地址即公服」的启发式，会把公网 IP/域名的
+     * 手动 peer 误判成公共服务器并丢失 peer 列表；现仅当唯一 peer 命中官方
+     * 公共服务器域名时才推断为公服模式，其余一律保留为手动节点。
+     */
     private fun isPublicServerUrl(url: String): Boolean {
-        // 简单启发式：公共服务器 URL 通常含公共域名/IP 且无内网特征
-        return !url.contains("192.168.") && !url.contains("10.") && !url.contains("172.16.")
+        val host = url.substringAfter("://", "").substringBefore('/')
+            .substringAfterLast('@').substringBeforeLast(':')
+        return PUBLIC_SERVER_HOSTS.any { host == it || host.endsWith(".$it") }
     }
 }

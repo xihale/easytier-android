@@ -77,6 +77,47 @@ class TomlRoundTripTest {
     }
 
     @Test
+    fun `importer keeps public-ip manual peer as manual (not public server)`() {
+        val parsed = TomlImporter.parse(
+            """
+            instance_name = "vps"
+            [network_identity]
+            network_name = "vps"
+            [[peer]]
+            uri = "tcp://203.0.113.10:11010"
+            """.trimIndent(),
+        ).getOrThrow()
+        assertEquals(NetworkingMethod.Manual, parsed.networkingMethod)
+        assertEquals(listOf("tcp://203.0.113.10:11010"), parsed.peerUrls)
+        assertNull(parsed.publicServerUrl)
+    }
+
+    @Test
+    fun `importer keeps hostname manual peer as manual`() {
+        val parsed = TomlImporter.parse(
+            """
+            [network_identity]
+            network_name = "n"
+            [[peer]]
+            uri = "tcp://my-vps.example.com:11010"
+            """.trimIndent(),
+        ).getOrThrow()
+        assertEquals(NetworkingMethod.Manual, parsed.networkingMethod)
+        assertEquals(listOf("tcp://my-vps.example.com:11010"), parsed.peerUrls)
+    }
+
+    @Test
+    fun `official public server still inferred as public server mode`() {
+        val original = NetworkConfig(
+            networkingMethod = NetworkingMethod.PublicServer,
+            publicServerUrl = "tcp://public.easytier.cn:11010",
+        )
+        val parsed = TomlImporter.parse(TomlGenerator.generate(original)).getOrThrow()
+        assertEquals(NetworkingMethod.PublicServer, parsed.networkingMethod)
+        assertEquals("tcp://public.easytier.cn:11010", parsed.publicServerUrl)
+    }
+
+    @Test
     fun `round trip preserves key fields including socks5`() {
         val original = NetworkConfig(
             networkName = "round",
