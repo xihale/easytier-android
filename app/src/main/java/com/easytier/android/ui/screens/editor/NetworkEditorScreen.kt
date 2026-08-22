@@ -1,6 +1,7 @@
 package com.easytier.android.ui.screens.editor
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -160,8 +162,6 @@ fun NetworkEditorScreen(
     var showImportDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
 
-    val saved = network ?: return
-
     // 保存后返回主页（主页面会短暂高亮刚保存的网络）
     fun saveOnly() {
         vm.autoStartAfterSave = false
@@ -210,6 +210,7 @@ fun NetworkEditorScreen(
             }
         },
     ) { padding ->
+        // 数据未就绪时也渲染外壳（顶栏+标签），避免过渡期只剩背景色像蒙了层遮罩
         Column(Modifier.fillMaxSize().padding(padding)) {
             // 分段标签
             TabRow(selectedTabIndex = tab) {
@@ -222,39 +223,49 @@ fun NetworkEditorScreen(
                 }
             }
 
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            ) {
-                when (tab) {
-                    0 -> BasicTab(saved.config, vm::update)
-                    1 -> AdvancedTab(saved.config, vm::update)
-                    2 -> PortForwardTab(saved.config, vm::update)
+            val saved = network
+            if (saved == null) {
+                Box(
+                    Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
                 }
-                Spacer(Modifier.height(120.dp))
-            }
+            } else {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    when (tab) {
+                        0 -> BasicTab(saved.config, vm::update)
+                        1 -> AdvancedTab(saved.config, vm::update)
+                        2 -> PortForwardTab(saved.config, vm::update)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
 
-            // 底部保存条
-            Row(
-                Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Button(
-                    onClick = ::saveOnly,
-                    modifier = Modifier.weight(1f),
+                // 底部保存条（weight 布局保证不被滚动区挤掉）
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(AppIcons.Save, null, Modifier.size(18.dp))
-                    Text("保存", Modifier.padding(start = 6.dp))
-                }
-                Button(
-                    onClick = ::saveAndEnable,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
-                    Text("保存并启用", Modifier.padding(start = 6.dp))
+                    Button(
+                        onClick = ::saveOnly,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(AppIcons.Save, null, Modifier.size(18.dp))
+                        Text("保存", Modifier.padding(start = 6.dp))
+                    }
+                    Button(
+                        onClick = ::saveAndEnable,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
+                        Text("保存并启用", Modifier.padding(start = 6.dp))
+                    }
                 }
             }
         }
@@ -272,12 +283,16 @@ fun NetworkEditorScreen(
         )
     }
     if (showExportDialog) {
-        TomlExportDialog(
-            // 导出不带本机 instance_id：对方直接用于核心时避免同 peer_id 互踢
-            toml = remember(saved.config) { TomlGenerator.generate(saved.config, includeInstanceId = false) },
-            networkName = saved.config.networkName,
-            onDismiss = { showExportDialog = false },
-        )
+        network?.let { current ->
+            TomlExportDialog(
+                // 导出不带本机 instance_id：对方直接用于核心时避免同 peer_id 互踢
+                toml = remember(current.config) {
+                    TomlGenerator.generate(current.config, includeInstanceId = false)
+                },
+                networkName = current.config.networkName,
+                onDismiss = { showExportDialog = false },
+            )
+        }
     }
 }
 
