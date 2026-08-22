@@ -118,6 +118,59 @@ class TomlRoundTripTest {
     }
 
     @Test
+    fun `multiple peers never inferred as public server even if one is official`() {
+        val parsed = TomlImporter.parse(
+            """
+            [network_identity]
+            network_name = "n"
+            [[peer]]
+            uri = "tcp://public.easytier.cn:11010"
+            [[peer]]
+            uri = "tcp://203.0.113.10:11010"
+            """.trimIndent(),
+        ).getOrThrow()
+        assertEquals(NetworkingMethod.Manual, parsed.networkingMethod)
+    }
+
+    @Test
+    fun `public server host matching is case-insensitive`() {
+        val parsed = TomlImporter.parse(
+            """
+            [network_identity]
+            network_name = "n"
+            [[peer]]
+            uri = "tcp://Public.EasyTier.CN:11010"
+            """.trimIndent(),
+        ).getOrThrow()
+        assertEquals(NetworkingMethod.PublicServer, parsed.networkingMethod)
+    }
+
+    @Test
+    fun `generate after import is idempotent for rich config`() {
+        val original = NetworkConfig(
+            networkName = "rich",
+            networkSecret = "pw",
+            networkingMethod = NetworkingMethod.Manual,
+            peerUrls = listOf("tcp://203.0.113.10:11010", "udp://my-vps.example.com:11010"),
+            dhcp = false,
+            virtualIpv4 = "10.147.0.3",
+            networkLength = 24,
+            hostname = "phone",
+            listenerUrls = listOf("tcp://0.0.0.0:11010"),
+            proxyCidrs = listOf("10.0.0.0/24"),
+            latencyFirst = true,
+            enableKcpProxy = true,
+        )
+        val once = TomlGenerator.generate(original)
+        val first = TomlImporter.parse(once).getOrThrow()
+        // 语义幂等：导入→再生成→再导入后除身份外不变。
+        // 字节级对比不可行：instanceId 为 null 时生成器每次随机出新 UUID，
+        // 而导入器按设计丢弃身份（避免两端同 peer_id 互踢）。
+        val twice = TomlImporter.parse(TomlGenerator.generate(first)).getOrThrow()
+        assertEquals(first, twice)
+    }
+
+    @Test
     fun `round trip preserves key fields including socks5`() {
         val original = NetworkConfig(
             networkName = "round",

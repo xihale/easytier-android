@@ -147,7 +147,7 @@ object TomlImporter {
      */
     private fun isPublicServerUrl(url: String): Boolean {
         val host = url.substringAfter("://", "").substringBefore('/')
-            .substringAfterLast('@').substringBeforeLast(':')
+            .substringAfterLast('@').substringBeforeLast(':').lowercase()
         return PUBLIC_SERVER_HOSTS.any { host == it || host.endsWith(".$it") }
     }
 }
