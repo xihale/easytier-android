@@ -93,3 +93,11 @@ val OnStatusSuccessContainer = Color(0xFF002106)
 val StatusWarning = Color(0xFFF59E0B)
 val StatusWarningContainer = Color(0xFFFEF3C7)
 val OnStatusWarningContainer = Color(0xFF2C1600)
+
+// ---- 语义扩展色深色变体（emerald/amber 深色系，按 MD3 深色容器规则取深底浅字）----
+val StatusSuccessDark = Color(0xFF6EE7B7)
+val StatusSuccessContainerDark = Color(0xFF064E3B)
+val OnStatusSuccessContainerDark = Color(0xFFA7F3D0)
+val StatusWarningDark = Color(0xFFFBBF24)
+val StatusWarningContainerDark = Color(0xFF422006)
+val OnStatusWarningContainerDark = Color(0xFFFDE68A)

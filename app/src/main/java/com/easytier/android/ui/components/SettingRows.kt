@@ -30,6 +30,7 @@ fun SettingRow(
     icon: ImageVector? = null,
     trailing: @Composable () -> Unit = {},
     onClick: (() -> Unit)? = null,
+    divider: Boolean = true,
 ) {
     val rowModifier = if (onClick != null) {
         Modifier.fillMaxWidth().clickable(onClick = onClick)
@@ -55,7 +56,10 @@ fun SettingRow(
         }
         trailing()
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    // 分组最后一行传 divider = false，避免分割线贴着下一组标题
+    if (divider) {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    }
 }
 
 /** 带开关的设置行（onCheckedChange 放最后，支持尾随 lambda）。 */
@@ -66,6 +70,7 @@ fun SwitchRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     icon: ImageVector? = null,
+    divider: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     SettingRow(
@@ -73,8 +78,11 @@ fun SwitchRow(
         subtitle = subtitle,
         icon = icon,
         modifier = modifier,
+        // 整行可点；Switch 只做展示（onCheckedChange = null），避免行点击 + 开关自身点击双触发
+        onClick = { onCheckedChange(!checked) },
+        divider = divider,
         trailing = {
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
+            Switch(checked = checked, onCheckedChange = null)
         },
     )
 }
@@ -88,6 +96,7 @@ fun ChoiceRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     icon: ImageVector? = null,
+    divider: Boolean = true,
 ) {
     SettingRow(
         title = title,
@@ -95,6 +104,7 @@ fun ChoiceRow(
         icon = icon,
         modifier = modifier,
         onClick = onClick,
+        divider = divider,
         trailing = {
             Text(
                 value,

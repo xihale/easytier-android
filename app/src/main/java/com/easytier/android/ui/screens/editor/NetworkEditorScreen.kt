@@ -1,13 +1,16 @@
 package com.easytier.android.ui.screens.editor
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -15,7 +18,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
@@ -31,7 +33,6 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -44,6 +45,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,15 +62,21 @@ import com.easytier.android.data.model.NetworkConfig
 import com.easytier.android.data.model.NetworkingMethod
 import com.easytier.android.data.model.PortForwardEntry
 import com.easytier.android.data.model.SavedNetwork
+import com.easytier.android.ui.components.ConfirmDialog
+import com.easytier.android.ui.components.EmptyState
+import com.easytier.android.ui.components.IntField
+import com.easytier.android.ui.components.LongField
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.StringListEditor
 import com.easytier.android.ui.components.SwitchRow
 import com.easytier.android.ui.components.TomlExportDialog
 import com.easytier.android.ui.components.TomlImportDialog
+import com.easytier.android.ui.components.rememberWithVpnPermission
 import com.easytier.android.ui.icons.AppIcons
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /** 编辑页 ViewModel。 */
@@ -76,6 +84,14 @@ class EditorViewModel(val container: AppContainer) : ViewModel() {
 
     private val _network = MutableStateFlow<SavedNetwork?>(null)
     val network = _network.asStateFlow()
+
+    /** 落库时的快照，供 UI 做脏检查（防误退）。 */
+    private val _original = MutableStateFlow<SavedNetwork?>(null)
+    val original = _original.asStateFlow()
+
+    /** 编辑目标已被删除（列表页先删、编辑页还开着等场景）。 */
+    private val _notFound = MutableStateFlow(false)
+    val notFound = _notFound.asStateFlow()
 
     /** 保存被拦截时的提示，展示后调 consumeSaveError() 清除。 */
     private val _saveError = MutableStateFlow<String?>(null)
@@ -85,15 +101,18 @@ class EditorViewModel(val container: AppContainer) : ViewModel() {
         _saveError.value = null
     }
 
-    /** 保存后自动启动。 */
-    var autoStartAfterSave = false
-
     fun load(id: String?) {
         viewModelScope.launch {
-            _network.value = if (id == null) {
-                NetworksRepository_newNetwork()
+            if (id == null) {
+                val created = NetworksRepository_newNetwork()
+                _network.value = created
+                _original.value = created
+                _notFound.value = false
             } else {
-                container.networksRepository.get(id)
+                val loaded = container.networksRepository.get(id)
+                _notFound.value = loaded == null
+                _network.value = loaded
+                _original.value = loaded
             }
         }
     }
@@ -105,7 +124,11 @@ class EditorViewModel(val container: AppContainer) : ViewModel() {
         _network.value = _network.value?.let { it.copy(config = transform(it.config)) }
     }
 
-    fun save(onSaved: (SavedNetwork, Boolean) -> Unit) {
+    /**
+     * 保存（可选同时启用）。全部跑在 viewModelScope：
+     * 保存后立刻 popBackStack 也不会取消 DataStore 写入（UI 的 rememberCoroutineScope 会随页面销毁被取消）。
+     */
+    fun save(startEnabled: Boolean, onSaved: (String) -> Unit) {
         val current = _network.value ?: return
         viewModelScope.launch {
             // 引擎按 network_name 组织实例：空名/与其他网络重名都会冲突，统一在落库前拦截
@@ -123,12 +146,25 @@ class EditorViewModel(val container: AppContainer) : ViewModel() {
             }
             val updated = current.copy(
                 config = current.config.copy(networkName = name),
+                enabled = current.enabled || startEnabled,
                 updatedAt = System.currentTimeMillis(),
             )
             _saveError.value = null
             container.networksRepository.save(updated)
             _network.value = updated
-            onSaved(updated, autoStartAfterSave)
+            _original.value = updated
+            if (startEnabled) {
+                if (container.vpnController.serviceRunning.value) {
+                    container.vpnController.onEnabledChanged(updated, true)
+                } else {
+                    // 服务未运行时 onEnabledChanged 是空操作：直接拉起服务（含刚保存的此网络）
+                    val enabledNetworks = container.networksRepository.networks.first()
+                        .filter { it.enabled }
+                    container.vpnController.startService(enabledNetworks)
+                        .onFailure { _saveError.value = it.message ?: "启动服务失败" }
+                }
+            }
+            onSaved(updated.id)
         }
     }
 }
@@ -144,11 +180,13 @@ fun NetworkEditorScreen(
 ) {
     val vm: EditorViewModel = viewModel { EditorViewModel(container) }
     val network by vm.network.collectAsState()
+    val original by vm.original.collectAsState()
+    val notFound by vm.notFound.collectAsState()
     val saveError by vm.saveError.collectAsState()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
-    // 保存被拦截（空名/重名）时提示，且不离开编辑页
+    // 保存被拦截（空名/重名/启动失败）时提示；空名/重名不离开编辑页
     LaunchedEffect(saveError) {
         saveError?.let {
             snackbar.showSnackbar(it)
@@ -158,39 +196,43 @@ fun NetworkEditorScreen(
 
     LaunchedEffect(networkId) { vm.load(networkId) }
 
-    var tab by remember { mutableIntStateOf(0) }
+    // rememberSaveable：切后台/进程重建后停留在原 tab
+    var tab by rememberSaveable { mutableIntStateOf(0) }
     var showImportDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
 
-    // 保存后返回主页（主页面会短暂高亮刚保存的网络）
-    fun saveOnly() {
-        vm.autoStartAfterSave = false
-        vm.save { n, _ -> onSaved(n.id) }
+    // 脏检查：与落库快照不一致时拦截返回，防误触丢改动
+    val dirty = network != null && network != original
+    fun attemptBack() {
+        if (dirty) showDiscardDialog = true else onBack()
+    }
+    BackHandler(enabled = dirty) { showDiscardDialog = true }
+
+    // VPN 关闭（仅引擎模式）时无需系统 VPN 权限
+    val enableVpn by remember(container) {
+        container.settingsRepository.settings.map { it.enableVpn }
+    }.collectAsState(initial = true)
+
+    // 保存并启用：启用即可能建 TUN，先确保 VPN 已授权
+    val saveAndEnableWithPermission = rememberWithVpnPermission(enabled = enableVpn) {
+        vm.save(true, onSaved)
     }
 
-    // 保存并启用：勾选该网络（服务启动时加入）；服务在运行则直接拉起实例
-    fun saveAndEnable() {
-        vm.autoStartAfterSave = true
-        vm.save { n, _ ->
-            val enabledNetwork = n.copy(enabled = true)
-            scope.launch {
-                container.networksRepository.save(
-                    enabledNetwork.copy(updatedAt = System.currentTimeMillis()),
-                )
-            }
-            container.vpnController.onEnabledChanged(enabledNetwork, true)
-            onSaved(n.id)
-        }
+    fun saveOnly() {
+        vm.save(false, onSaved)
     }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
+        // 外层（MainActivity 的）Scaffold 已处理系统栏/底栏 inset，这里清零杜绝双重 pad
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = ::attemptBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
                 }
                 Text(
@@ -204,14 +246,12 @@ fun NetworkEditorScreen(
                 IconButton(onClick = { showExportDialog = true }) {
                     Icon(AppIcons.Download, "导出 TOML")
                 }
-                IconButton(onClick = ::saveOnly) {
-                    Icon(AppIcons.Save, "保存")
-                }
             }
         },
     ) { padding ->
-        // 数据未就绪时也渲染外壳（顶栏+标签），避免过渡期只剩背景色像蒙了层遮罩
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        // 数据未就绪时也渲染外壳（顶栏+标签），避免过渡期只剩背景色像蒙了层遮罩；
+        // imePadding：键盘弹出时让出输入区
+        Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
             // 分段标签
             TabRow(selectedTabIndex = tab) {
                 listOf("基本", "高级", "端口转发").forEachIndexed { i, label ->
@@ -224,53 +264,98 @@ fun NetworkEditorScreen(
             }
 
             val saved = network
-            if (saved == null) {
-                Box(
+            when {
+                // 编辑目标已被删除：给出明确出口而不是无限 spinner
+                notFound -> Box(
+                    Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        EmptyState(
+                            icon = AppIcons.CloudOff,
+                            title = "网络不存在",
+                            hint = "该网络可能已被删除",
+                        )
+                        TextButton(onClick = onBack) { Text("返回") }
+                    }
+                }
+                saved == null -> Box(
                     Modifier.fillMaxWidth().weight(1f),
                     contentAlignment = Alignment.Center,
                 ) {
                     CircularProgressIndicator()
                 }
-            } else {
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
+                else -> {
+                    // 各 tab 独立滚动：切换 tab 不停留在上个 tab 的滚动位置
                     when (tab) {
-                        0 -> BasicTab(saved.config, vm::update)
-                        1 -> AdvancedTab(saved.config, vm::update)
-                        2 -> PortForwardTab(saved.config, vm::update)
+                        0 -> Column(
+                            Modifier
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            BasicTab(saved.config, vm::update)
+                            Spacer(Modifier.height(16.dp))
+                        }
+                        1 -> Column(
+                            Modifier
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            AdvancedTab(saved.config, vm::update)
+                            Spacer(Modifier.height(16.dp))
+                        }
+                        2 -> Column(
+                            Modifier
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            PortForwardTab(saved.config, vm::update)
+                            Spacer(Modifier.height(16.dp))
+                        }
                     }
-                    Spacer(Modifier.height(16.dp))
-                }
 
-                // 底部保存条（weight 布局保证不被滚动区挤掉）
-                Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Button(
-                        onClick = ::saveOnly,
-                        modifier = Modifier.weight(1f),
+                    // 底部保存条（weight 布局保证不被滚动区挤掉）
+                    Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(AppIcons.Save, null, Modifier.size(18.dp))
-                        Text("保存", Modifier.padding(start = 6.dp))
-                    }
-                    Button(
-                        onClick = ::saveAndEnable,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
-                        Text("保存并启用", Modifier.padding(start = 6.dp))
+                        Button(
+                            onClick = ::saveOnly,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(AppIcons.Save, null, Modifier.size(18.dp))
+                            Text("保存", Modifier.padding(start = 6.dp))
+                        }
+                        Button(
+                            onClick = saveAndEnableWithPermission,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
+                            Text("保存并启用", Modifier.padding(start = 6.dp))
+                        }
                     }
                 }
             }
         }
     }
 
+    if (showDiscardDialog) {
+        ConfirmDialog(
+            title = "放弃修改？",
+            text = "有未保存的修改，离开将丢失这些改动。",
+            confirmText = "放弃",
+            destructive = true,
+            onConfirm = {
+                showDiscardDialog = false
+                onBack()
+            },
+            onDismiss = { showDiscardDialog = false },
+        )
+    }
     if (showImportDialog) {
         TomlImportDialog(
             initialText = "",
@@ -350,13 +435,12 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
                 singleLine = true,
                 modifier = Modifier.weight(2f),
             )
-            OutlinedTextField(
-                value = config.networkLength.toString(),
-                onValueChange = { v ->
-                    update { it.copy(networkLength = v.toIntOrNull() ?: 24) }
-                },
-                label = { Text("前缀长度") },
-                singleLine = true,
+            IntField(
+                value = config.networkLength,
+                onValueChange = { v -> update { it.copy(networkLength = v ?: 24) } },
+                label = "前缀长度",
+                range = 0..32,
+                allowEmpty = false,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -426,13 +510,13 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
     SwitchRow("KCP 代理", config.enableKcpProxy ?: false) { v -> update { it.copy(enableKcpProxy = v) } }
     SwitchRow("禁用 P2P", config.disableP2p ?: false) { v -> update { it.copy(disableP2p = v) } }
     SwitchRow("无 TUN 模式", config.noTun ?: false) { v -> update { it.copy(noTun = v) } }
-    SwitchRow("出口节点", config.enableExitNode ?: false) { v -> update { it.copy(enableExitNode = v) } }
     SwitchRow("Magic DNS", config.enableMagicDns ?: false) { v -> update { it.copy(enableMagicDns = v) } }
     SwitchRow("私有模式", config.enablePrivateMode ?: false) { v -> update { it.copy(enablePrivateMode = v) } }
     SwitchRow("多线程", config.multiThread ?: true) { v -> update { it.copy(multiThread = v) } }
 
+    // 可见 9 项 + 隐藏 16 项（出口节点在「基本」页，避免重复字段）
     TextButton(onClick = { showAllFlags = !showAllFlags }) {
-        Text(if (showAllFlags) "收起" else "显示全部 26 项")
+        Text(if (showAllFlags) "收起" else "显示全部 25 项")
     }
     if (showAllFlags) {
         SwitchRow("绑定设备", config.bindDevice ?: true) { v -> update { it.copy(bindDevice = v) } }
@@ -469,12 +553,13 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
         placeholder = "10.0.0.0/24",
     )
     Spacer(Modifier.height(8.dp))
-    OutlinedTextField(
-        value = config.mtu?.toString() ?: "",
-        onValueChange = { v -> update { it.copy(mtu = v.toIntOrNull()) } },
-        label = { Text("MTU") },
-        supportingText = { Text("400 - 1380") },
-        singleLine = true,
+    IntField(
+        value = config.mtu,
+        onValueChange = { v -> update { it.copy(mtu = v) } },
+        label = "MTU",
+        range = 400..1380,
+        supporting = "400 - 1380",
+        allowEmpty = true,
         modifier = Modifier.fillMaxWidth(),
     )
     Spacer(Modifier.height(8.dp))
@@ -516,11 +601,11 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
             placeholder = "172.16.0.0/12",
         )
     }
-    OutlinedTextField(
-        value = config.instanceRecvBpsLimit?.toString() ?: "",
-        onValueChange = { v -> update { it.copy(instanceRecvBpsLimit = v.toLongOrNull()) } },
-        label = { Text("接收带宽限制（bit/s）") },
-        singleLine = true,
+    LongField(
+        value = config.instanceRecvBpsLimit,
+        onValueChange = { v -> update { it.copy(instanceRecvBpsLimit = v) } },
+        label = "接收带宽限制（bit/s）",
+        allowEmpty = true,
         modifier = Modifier.fillMaxWidth(),
     )
     Spacer(Modifier.height(8.dp))
@@ -600,11 +685,12 @@ private fun PortForwardEditor(
                     singleLine = true,
                     modifier = Modifier.weight(2f),
                 )
-                OutlinedTextField(
-                    value = pf.bindPort.toString(),
-                    onValueChange = { v -> onChange(pf.copy(bindPort = v.toIntOrNull() ?: 0)) },
-                    label = { Text("绑定端口") },
-                    singleLine = true,
+                IntField(
+                    value = pf.bindPort,
+                    onValueChange = { v -> onChange(pf.copy(bindPort = v ?: 0)) },
+                    label = "绑定端口",
+                    range = 1..65535,
+                    allowEmpty = false,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -617,11 +703,12 @@ private fun PortForwardEditor(
                     singleLine = true,
                     modifier = Modifier.weight(2f),
                 )
-                OutlinedTextField(
-                    value = pf.dstPort.toString(),
-                    onValueChange = { v -> onChange(pf.copy(dstPort = v.toIntOrNull() ?: 0)) },
-                    label = { Text("目标端口") },
-                    singleLine = true,
+                IntField(
+                    value = pf.dstPort,
+                    onValueChange = { v -> onChange(pf.copy(dstPort = v ?: 0)) },
+                    label = "目标端口",
+                    range = 1..65535,
+                    allowEmpty = false,
                     modifier = Modifier.weight(1f),
                 )
             }

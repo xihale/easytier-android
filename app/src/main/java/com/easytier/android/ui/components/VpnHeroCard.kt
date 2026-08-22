@@ -3,6 +3,8 @@ package com.easytier.android.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,6 +36,7 @@ import com.easytier.android.ui.icons.AppIcons
  * 渐变用固定深蓝（不取主题色）：深色主题下 primary 是浅色，白字会失去对比度；
  * 未运行时用灰色渐变弱化。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ServiceHeroCard(
     running: Boolean,
@@ -112,9 +115,11 @@ fun ServiceHeroCard(
         }
 
         if (stats.isNotEmpty()) {
-            Row(
+            // FlowRow：窄屏时胶囊换行而不是溢出
+            FlowRow(
                 Modifier.fillMaxWidth().padding(top = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 stats.forEach { text -> HeroStat(text) }
             }

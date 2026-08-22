@@ -34,7 +34,6 @@ fun RateChart(
         if (n < 2) return@Canvas
         // 两条曲线共用一个量程（取各自最大值的较大者），否则视觉上无法对比
         val maxV = maxOf(rxHistory.max(), txHistory.max()).coerceAtLeast(1024L).toFloat()
-        val stepX = size.width / (maxPoints - 1).coerceAtLeast(1)
 
         // 网格线
         for (i in 1..3) {

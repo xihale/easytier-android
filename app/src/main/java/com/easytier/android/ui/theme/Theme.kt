@@ -40,7 +40,8 @@ private val DesignTypography = Typography(
     bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.4.sp),
     labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.1.sp),
     labelMedium = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp),
-    labelSmall = TextStyle(fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp),
+    // 低于 12sp 可读性下限，labelSmall 由 11sp 提到 12sp
+    labelSmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp),
 )
 
 private val LightColors: ColorScheme = lightColorScheme(
@@ -124,7 +125,20 @@ fun EasyTierTheme(
 ) {
     // Android 12+ 跟随系统动态取色关闭：使用品牌静态色板，保证设计一致性
     val colorScheme = if (darkTheme) DarkColors else LightColors
-    CompositionLocalProvider(LocalStatusColors provides StatusColors()) {
+    // 状态色同样按明暗提供两套：深色用深底浅字容器，避免浅色容器在深色页刺眼
+    val statusColors = if (darkTheme) {
+        StatusColors(
+            success = StatusSuccessDark,
+            successContainer = StatusSuccessContainerDark,
+            onSuccessContainer = OnStatusSuccessContainerDark,
+            warning = StatusWarningDark,
+            warningContainer = StatusWarningContainerDark,
+            onWarningContainer = OnStatusWarningContainerDark,
+        )
+    } else {
+        StatusColors()
+    }
+    CompositionLocalProvider(LocalStatusColors provides statusColors) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = DesignTypography,

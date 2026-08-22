@@ -1,8 +1,5 @@
 package com.easytier.android.ui.components
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -12,49 +9,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
-
-/** 单选对话框。 */
-@Composable
-fun <T> SingleChoiceDialog(
-    title: String,
-    options: List<T>,
-    selected: T,
-    label: (T) -> String,
-    onDismiss: () -> Unit,
-    onSelect: (T) -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            androidx.compose.foundation.layout.Column(
-                Modifier.verticalScroll(rememberScrollState()),
-            ) {
-                options.forEach { option ->
-                    TextButton(
-                        onClick = { onSelect(option); onDismiss() },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            label(option),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (option == selected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        },
-    )
-}
 
 /** 确认对话框。 */
 @Composable

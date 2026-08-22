@@ -2,7 +2,6 @@ package com.easytier.android.ui.screens.networks
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,24 +27,31 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -67,10 +72,10 @@ import com.easytier.android.ui.icons.AppIcons
 import com.easytier.android.util.Format
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 /** 首页 ViewModel：网络列表 + 运行状态 + 服务开关状态。 */
 class NetworksViewModel(val container: AppContainer) : ViewModel() {
@@ -281,9 +286,6 @@ fun NetworksScreen(
     }
 }
 
-/** 左滑操作阈值：超过则触发删除。 */
-private val SWIPE_ACTION_THRESHOLD = 96.dp
-
 /**
  * 网络卡片：Checkbox 勾选（服务启动时加入）+ 状态色图标 + 名称。
  * 右滑露出编辑 icon 并进入编辑页；左滑露出删除 icon 并删除。
@@ -296,12 +298,8 @@ private fun NetworkCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val running = state is InstanceState.Running || state is InstanceState.Starting
     val accent = stateAccent(state)
-    var offsetX by remember(network.id) { mutableFloatStateOf(0f) }
-    val thresholdPx = with(androidx.compose.ui.platform.LocalDensity.current) {
-        SWIPE_ACTION_THRESHOLD.toPx()
-    }
+    val haptics = LocalHapticFeedback.current
     val (subtitle, subtitleColor) = when (state) {
         is InstanceState.Running -> (
             state.info.myNodeInfo?.virtualIpv4?.toIpString()?.let { "运行中 · $it" } ?: "运行中"
@@ -312,114 +310,121 @@ private fun NetworkCard(
             MaterialTheme.colorScheme.onSurfaceVariant
     }
 
-    Box(Modifier.fillMaxWidth()) {
-        // 底层操作区：左滑露出右侧整块红色删除区，右滑露出左侧编辑区
-        Row(Modifier.matchParentSize()) {
-            // 右滑编辑：左侧蓝底
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(16.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Filled.Edit,
-                    "右滑编辑",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
+    // 确认阈值即触发动作；返回 false 表示不停留在 dismissed，松手自动回弹（带动画/支持 fling）
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { v ->
+            when (v) {
+                SwipeToDismissBoxValue.StartToEnd -> { onEdit(); false }
+                SwipeToDismissBoxValue.EndToStart -> { onDelete(); false }
+                else -> false
             }
-            // 左滑删除：右侧红底
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(16.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Filled.Delete,
-                    "左滑删除",
-                    tint = MaterialTheme.colorScheme.onErrorContainer,
-                )
-            }
-        }
+        },
+    )
+    // 越过阈值（targetValue 离开 Settled）时轻震，提示动作已就绪
+    LaunchedEffect(dismissState) {
+        snapshotFlow { dismissState.targetValue }
+            .filter { it != SwipeToDismissBoxValue.Settled }
+            .collect { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+    }
 
-        AppCard(
-            modifier = Modifier
-                .offset { IntOffset(offsetX.roundToInt(), 0) }
-                .pointerInput(network.id) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            when {
-                                offsetX <= -thresholdPx -> {
-                                    offsetX = 0f
-                                    onDelete()
-                                }
-                                offsetX >= thresholdPx -> {
-                                    offsetX = 0f
-                                    onEdit()
-                                }
-                                else -> offsetX = 0f // 未达阈值回弹
-                            }
-                        },
-                    ) { change, dragAmount ->
-                        change.consume()
-                        offsetX = (offsetX + dragAmount).coerceIn(
-                            -thresholdPx * 1.6f,
-                            thresholdPx * 1.6f,
+    Box(
+        Modifier
+            .fillMaxWidth()
+            // TalkBack 用户无法滑动，提供自定义操作直达编辑/删除
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction("编辑网络") { onEdit(); true },
+                    CustomAccessibilityAction("删除网络") { onDelete(); true },
+                )
+            },
+    ) {
+        SwipeToDismissBox(
+            state = dismissState,
+            backgroundContent = {
+                // 底层操作区：左滑露出右侧整块红色删除区，右滑露出左侧编辑区
+                // （backgroundContent 是 RowScope，没有 matchParentSize，用 fillMaxSize 填满内容高度）
+                Row(Modifier.fillMaxSize()) {
+                    // 右滑编辑：左侧蓝底
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(16.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Filled.Edit,
+                            "右滑编辑",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
-                },
+                    // 左滑删除：右侧红底
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(16.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            "左滑删除",
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                }
+            },
         ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { onEdit() }
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(
-                    checked = network.enabled,
-                    onCheckedChange = onToggleEnabled,
-                )
-                Icon(
-                    AppIcons.Work,
-                    null,
-                    tint = accent,
-                    modifier = Modifier
-                        .padding(start = 4.dp)
-                        .size(40.dp)
-                        .background(accent.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
-                        .padding(10.dp),
-                )
-                Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                    Text(
-                        network.config.networkName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+            AppCard {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onEdit() }
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        checked = network.enabled,
+                        onCheckedChange = onToggleEnabled,
                     )
-                    Text(
-                        subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = subtitleColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp),
+                    Icon(
+                        AppIcons.Work,
+                        null,
+                        tint = accent,
+                        modifier = Modifier
+                            .padding(start = 4.dp)
+                            .size(40.dp)
+                            .background(accent.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+                            .padding(10.dp),
+                    )
+                    Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                        Text(
+                            network.config.networkName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = subtitleColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                    // 右缘滑动提示：双向箭头
+                    Icon(
+                        AppIcons.ExpandMore,
+                        null,
+                        tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .size(18.dp)
+                            .rotate(-90f),
                     )
                 }
-                // 右缘滑动提示：双向箭头
-                Icon(
-                    AppIcons.ExpandMore,
-                    null,
-                    tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                    modifier = Modifier
-                        .padding(end = 4.dp)
-                        .size(18.dp)
-                        .rotate(-90f),
-                )
             }
         }
     }

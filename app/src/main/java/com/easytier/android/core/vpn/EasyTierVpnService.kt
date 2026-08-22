@@ -73,7 +73,8 @@ class EasyTierVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification("EasyTier 运行中"))
+        // instanceName 上面已判空返回，模板里不会出现 null
+        startForeground(NOTIFICATION_ID, buildNotification("运行中 · $instanceName"))
         acquireMulticastLock()
 
         scope.launch {
@@ -235,7 +236,7 @@ class EasyTierVpnService : VpnService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher) // TODO: 替换为品牌单色图标
+            .setSmallIcon(R.drawable.ic_stat_vpn)
             .setContentTitle("EasyTier")
             .setContentText(text)
             .setContentIntent(contentIntent)

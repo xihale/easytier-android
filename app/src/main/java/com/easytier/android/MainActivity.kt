@@ -1,12 +1,15 @@
 package com.easytier.android
 
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
@@ -16,6 +19,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -32,6 +36,8 @@ import com.easytier.android.ui.screens.networks.NetworksScreen
 import com.easytier.android.ui.screens.settings.SettingsScreen
 import com.easytier.android.ui.screens.status.StatusScreen
 import com.easytier.android.ui.theme.EasyTierTheme
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 
 class MainActivity : ComponentActivity() {
 
@@ -39,14 +45,22 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val container = (application as EasyTierApp).container
+        // 同步读一次初始设置（DataStore 文件极小）：collectAsState 用真实初值，避免首帧闪默认主题
+        val initialSettings = runBlocking { container.settingsRepository.settings.first() }
         setContent {
-            val settings by container.settingsRepository.settings.collectAsState(
-                initial = com.easytier.android.data.store.AppSettings(),
-            )
+            val settings by container.settingsRepository.settings.collectAsState(initial = initialSettings)
             val dark = when (settings.themeMode) {
                 "light" -> false
                 "dark" -> true
                 else -> androidx.compose.foundation.isSystemInDarkTheme()
+            }
+            // onCreate 里的 enableEdgeToEdge 只按系统深浅色定图标色；
+            // 应用内切主题时需按已解析的 dark 重设，否则浅色主题+系统深色会白图标叠浅底
+            SideEffect {
+                enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark },
+                    navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark },
+                )
             }
             EasyTierTheme(darkTheme = dark) {
                 EasyTierAppNavHost(container)
@@ -80,7 +94,8 @@ private fun EasyTierAppNavHost(container: AppContainer) {
                                         TopDestination.Status -> AppIcons.Speed
                                         TopDestination.Settings -> Icons.Filled.Settings
                                     },
-                                    contentDescription = dest.label,
+                                    // label 已提供文本，再写 contentDescription 会被 TalkBack 读两遍
+                                    contentDescription = null,
                                 )
                             },
                             label = { Text(dest.label) },
@@ -93,7 +108,8 @@ private fun EasyTierAppNavHost(container: AppContainer) {
         NavHost(
             navController = navController,
             startDestination = "networks",
-            modifier = Modifier.padding(padding),
+            // consumeWindowInsets：消费掉已 pad 的 inset，编辑页内层 Scaffold 不会重复 pad navigationBars
+            modifier = Modifier.padding(padding).consumeWindowInsets(padding),
             // 纯短淡入淡出：slide 会带着重组中的重页面一起动画，是切页卡顿的主因
             enterTransition = { fadeIn(tween(160)) },
             exitTransition = { fadeOut(tween(90)) },
@@ -109,10 +125,7 @@ private fun EasyTierAppNavHost(container: AppContainer) {
                 )
             }
             composable("status") {
-                StatusScreen(
-                    container = container,
-                    initialNetworkName = null,
-                )
+                StatusScreen(container = container)
             }
             composable("settings") {
                 SettingsScreen()

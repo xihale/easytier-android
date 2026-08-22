@@ -89,7 +89,8 @@ fun TomlImportDialog(
         onDismissRequest = onDismiss,
         title = { Text("导入 TOML 配置") },
         text = {
-            Column {
+            // 横屏/小屏下内容超高会裁掉确认按钮：整列可滚动
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     "粘贴 EasyTier TOML 文本，或从文件导入。导入会覆盖当前所有设置。",
                     style = MaterialTheme.typography.bodySmall,
@@ -104,7 +105,8 @@ fun TomlImportDialog(
                     },
                     placeholder = { Text("# instance_name = ...\n[network_identity]\nnetwork_name = \"default\"") },
                     textStyle = MonoStyle,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp),
+                    // 上限防竖屏时输入框过高把按钮挤出屏幕
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 280.dp),
                 )
                 error?.let { err ->
                     Surface(

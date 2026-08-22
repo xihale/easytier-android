@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.VpnService
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -116,7 +118,13 @@ fun SettingsScreen() {
         }
     }
 
-    val s = settings ?: return
+    val s = settings ?: run {
+        // 首帧设置未加载时给加载指示，避免整页空白
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
 
     Box(Modifier.fillMaxSize()) {
         Column(
@@ -163,6 +171,7 @@ fun SettingsScreen() {
                 subtitle = "设备开机后自动启动服务，拉起全部勾选的网络",
                 icon = AppIcons.Terminal,
                 checked = s.autoStartOnBoot,
+                divider = false,
                 onCheckedChange = { vm.setAutoStart(context, it) },
             )
 
@@ -189,9 +198,10 @@ fun SettingsScreen() {
                 onClick = requestVpnPermission,
             )
             SettingRow(
-                title = "开源许可",
-                subtitle = "EasyTier 核心（Rust）与开源组件",
+                title = "项目主页",
+                subtitle = "GitHub：EasyTier 核心（Rust）与开源组件",
                 icon = Icons.Filled.Info,
+                divider = false,
                 onClick = {
                     context.startActivity(
                         Intent(
@@ -223,7 +233,13 @@ fun SettingsScreen() {
             label = "端口（1024 - 65535）",
             onDismiss = { showSocks5Dialog = false },
             onConfirm = { text ->
-                text.toIntOrNull()?.let { vm.setSocks5(s.enableSocks5, it) }
+                // 非数字/越界不落库（此前会被静默吞掉或任意数字直接生效）
+                val port = text.toIntOrNull()
+                if (port != null && port in 1024..65535) {
+                    vm.setSocks5(s.enableSocks5, port)
+                } else {
+                    scope.launch { snackbar.showSnackbar("端口需为 1024 - 65535 之间的数字") }
+                }
                 showSocks5Dialog = false
             },
         )
@@ -244,14 +260,16 @@ private fun ChoiceDialog(
         text = {
             Column {
                 options.forEach { (key, label) ->
+                    // 整行可点；RadioButton 只做展示，避免双触发
                     Row(
                         Modifier
                             .fillMaxWidth()
+                            .clickable { onSelect(key) }
                             .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        RadioButton(selected = key == selected, onClick = { onSelect(key) })
+                        RadioButton(selected = key == selected, onClick = null)
                         Text(label)
                     }
                 }

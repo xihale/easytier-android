@@ -327,70 +327,6 @@ object AppIcons {
         }
     }
 
-    val Route: ImageVector by lazy {
-        icon("Route") {
-            moveTo(19.0f, 15.18f)
-            verticalLineTo(7.0f)
-            curveToRelative(0.0f, -2.21f, -1.79f, -4.0f, -4.0f, -4.0f)
-            reflectiveCurveToRelative(-4.0f, 1.79f, -4.0f, 4.0f)
-            verticalLineToRelative(10.0f)
-            curveToRelative(0.0f, 1.1f, -0.9f, 2.0f, -2.0f, 2.0f)
-            reflectiveCurveToRelative(-2.0f, -0.9f, -2.0f, -2.0f)
-            verticalLineTo(8.82f)
-            curveTo(8.16f, 8.4f, 9.0f, 7.3f, 9.0f, 6.0f)
-            curveToRelative(0.0f, -1.66f, -1.34f, -3.0f, -3.0f, -3.0f)
-            reflectiveCurveTo(3.0f, 4.34f, 3.0f, 6.0f)
-            curveToRelative(0.0f, 1.3f, 0.84f, 2.4f, 2.0f, 2.82f)
-            verticalLineTo(17.0f)
-            curveToRelative(0.0f, 2.21f, 1.79f, 4.0f, 4.0f, 4.0f)
-            reflectiveCurveToRelative(4.0f, -1.79f, 4.0f, -4.0f)
-            verticalLineTo(7.0f)
-            curveToRelative(0.0f, -1.1f, 0.9f, -2.0f, 2.0f, -2.0f)
-            reflectiveCurveToRelative(2.0f, 0.9f, 2.0f, 2.0f)
-            verticalLineToRelative(8.18f)
-            curveToRelative(-1.16f, 0.41f, -2.0f, 1.51f, -2.0f, 2.82f)
-            curveToRelative(0.0f, 1.66f, 1.34f, 3.0f, 3.0f, 3.0f)
-            reflectiveCurveToRelative(3.0f, -1.34f, 3.0f, -3.0f)
-            curveTo(21.0f, 16.7f, 20.16f, 15.6f, 19.0f, 15.18f)
-            close()
-        }
-    }
-
-    val Link: ImageVector by lazy {
-        icon("Link") {
-            moveTo(3.9f, 12.0f)
-            curveToRelative(0.0f, -1.71f, 1.39f, -3.1f, 3.1f, -3.1f)
-            horizontalLineToRelative(4.0f)
-            lineTo(11.0f, 7.0f)
-            lineTo(7.0f, 7.0f)
-            curveToRelative(-2.76f, 0.0f, -5.0f, 2.24f, -5.0f, 5.0f)
-            reflectiveCurveToRelative(2.24f, 5.0f, 5.0f, 5.0f)
-            horizontalLineToRelative(4.0f)
-            verticalLineToRelative(-1.9f)
-            lineTo(7.0f, 15.1f)
-            curveToRelative(-1.71f, 0.0f, -3.1f, -1.39f, -3.1f, -3.1f)
-            close()
-            moveTo(8.0f, 13.0f)
-            horizontalLineToRelative(8.0f)
-            verticalLineToRelative(-2.0f)
-            lineTo(8.0f, 11.0f)
-            verticalLineToRelative(2.0f)
-            close()
-            moveTo(17.0f, 7.0f)
-            horizontalLineToRelative(-4.0f)
-            verticalLineToRelative(1.9f)
-            horizontalLineToRelative(4.0f)
-            curveToRelative(1.71f, 0.0f, 3.1f, 1.39f, 3.1f, 3.1f)
-            reflectiveCurveToRelative(-1.39f, 3.1f, -3.1f, 3.1f)
-            horizontalLineToRelative(-4.0f)
-            lineTo(13.0f, 17.0f)
-            horizontalLineToRelative(4.0f)
-            curveToRelative(2.76f, 0.0f, 5.0f, -2.24f, 5.0f, -5.0f)
-            reflectiveCurveToRelative(-2.24f, -5.0f, -5.0f, -5.0f)
-            close()
-        }
-    }
-
     val Language: ImageVector by lazy {
         icon("Language") {
             moveTo(11.99f, 2.0f)
@@ -456,30 +392,6 @@ object AppIcons {
         }
     }
 
-    val HourglassTop: ImageVector by lazy {
-        icon("HourglassTop") {
-            moveTo(6.0f, 2.0f)
-            lineToRelative(0.01f, 6.0f)
-            lineTo(10.0f, 12.0f)
-            lineToRelative(-3.99f, 4.01f)
-            lineTo(6.0f, 22.0f)
-            horizontalLineToRelative(12.0f)
-            verticalLineToRelative(-6.0f)
-            lineToRelative(-4.0f, -4.0f)
-            lineToRelative(4.0f, -3.99f)
-            verticalLineTo(2.0f)
-            horizontalLineTo(6.0f)
-            close()
-            moveTo(16.0f, 16.5f)
-            verticalLineTo(20.0f)
-            horizontalLineTo(8.0f)
-            verticalLineToRelative(-3.5f)
-            lineToRelative(4.0f, -4.0f)
-            lineTo(16.0f, 16.5f)
-            close()
-        }
-    }
-
     val ExpandMore: ImageVector by lazy {
         icon("ExpandMore") {
             moveTo(16.59f, 8.59f)
@@ -488,33 +400,6 @@ object AppIcons {
             lineTo(6.0f, 10.0f)
             lineToRelative(6.0f, 6.0f)
             lineToRelative(6.0f, -6.0f)
-            close()
-        }
-    }
-
-    val ErrorOutline: ImageVector by lazy {
-        icon("ErrorOutline") {
-            moveTo(11.0f, 15.0f)
-            horizontalLineToRelative(2.0f)
-            verticalLineToRelative(2.0f)
-            horizontalLineToRelative(-2.0f)
-            close()
-            moveTo(11.0f, 7.0f)
-            horizontalLineToRelative(2.0f)
-            verticalLineToRelative(6.0f)
-            horizontalLineToRelative(-2.0f)
-            close()
-            moveTo(11.99f, 2.0f)
-            curveTo(6.47f, 2.0f, 2.0f, 6.48f, 2.0f, 12.0f)
-            reflectiveCurveToRelative(4.47f, 10.0f, 9.99f, 10.0f)
-            curveTo(17.52f, 22.0f, 22.0f, 17.52f, 22.0f, 12.0f)
-            reflectiveCurveTo(17.52f, 2.0f, 11.99f, 2.0f)
-            close()
-            moveTo(12.0f, 20.0f)
-            curveToRelative(-4.42f, 0.0f, -8.0f, -3.58f, -8.0f, -8.0f)
-            reflectiveCurveToRelative(3.58f, -8.0f, 8.0f, -8.0f)
-            reflectiveCurveToRelative(8.0f, 3.58f, 8.0f, 8.0f)
-            reflectiveCurveToRelative(-3.58f, 8.0f, -8.0f, 8.0f)
             close()
         }
     }

@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Icon
@@ -115,7 +115,6 @@ private data class TaggedPeer(
 @Composable
 fun StatusScreen(
     container: AppContainer,
-    initialNetworkName: String?,
 ) {
     val vm: StatusViewModel = viewModel { StatusViewModel(container) }
     val states by vm.states.collectAsState()
@@ -150,7 +149,8 @@ fun StatusScreen(
     if (running.isEmpty()) {
         val starting = states.values.any { it is InstanceState.Starting }
         val error = states.values.filterIsInstance<InstanceState.Error>().firstOrNull()
-        Column(Modifier.fillMaxSize()) {
+        // 居中空状态：Box 垂直水平居中，避免写死 top 偏移
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             EmptyState(
                 icon = AppIcons.CloudOff,
                 title = when {
@@ -159,7 +159,6 @@ fun StatusScreen(
                     else -> "没有运行中的实例"
                 },
                 hint = error?.message ?: "回到「网络」页打开一个网络的开关",
-                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 96.dp),
             )
         }
     } else {
@@ -193,10 +192,11 @@ fun StatusScreen(
                         }
                     }
                 } else {
-                    itemsIndexed(
+                    items(
                         taggedPeers,
-                        key = { i, p -> "${p.network}-${p.pair.route.peerId}-${p.pair.defaultConn?.connId ?: ""}-$i" },
-                    ) { _, tagged ->
+                        // peerId 在同一 network 内唯一；不要掺入位置 index，否则 key 随重排变化失去稳定意义
+                        key = { p -> "${p.network}-${p.pair.route.peerId}-${p.pair.defaultConn?.connId ?: ""}" },
+                    ) { tagged ->
                         PeerCard(tagged.pair, networkName = if (multi) tagged.network else null)
                     }
                 }
@@ -297,7 +297,8 @@ private fun NodeInfoCard(running: List<Pair<String, NetworkInstanceRunningInfo>>
                 }
                 Column(Modifier.padding(top = 8.dp)) {
                     InfoRow("主机名", single.myNodeInfo?.hostname ?: "--")
-                    InfoRow("Peer ID", single.myNodeInfo?.peerId.toString())
+                    // myNodeInfo 为 null 时 toString() 会显示字面量 "null"，改为占位符
+                    InfoRow("Peer ID", single.myNodeInfo?.peerId?.takeIf { it != 0L }?.toString() ?: "--")
                     if (expanded) NodeDetails(single)
                 }
             } else {
@@ -308,7 +309,7 @@ private fun NodeInfoCard(running: List<Pair<String, NetworkInstanceRunningInfo>>
                         if (expanded) {
                             Column(Modifier.padding(start = 4.dp, bottom = 8.dp)) {
                                 InfoRow("主机名", info.myNodeInfo?.hostname ?: "--")
-                                InfoRow("Peer ID", info.myNodeInfo?.peerId.toString())
+                                InfoRow("Peer ID", info.myNodeInfo?.peerId?.takeIf { it != 0L }?.toString() ?: "--")
                                 NodeDetails(info)
                             }
                         }
