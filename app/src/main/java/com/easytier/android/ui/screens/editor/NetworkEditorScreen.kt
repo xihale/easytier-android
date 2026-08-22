@@ -27,6 +27,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -52,7 +54,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.easytier.android.AppContainer
 import com.easytier.android.core.toml.TomlGenerator
-import com.easytier.android.core.toml.TomlImporter
 import com.easytier.android.data.model.NetworkConfig
 import com.easytier.android.data.model.NetworkingMethod
 import com.easytier.android.data.model.PortForwardEntry
@@ -60,6 +61,8 @@ import com.easytier.android.data.model.SavedNetwork
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.StringListEditor
 import com.easytier.android.ui.components.SwitchRow
+import com.easytier.android.ui.components.TomlExportDialog
+import com.easytier.android.ui.components.TomlImportDialog
 import com.easytier.android.ui.icons.AppIcons
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -114,15 +117,13 @@ fun NetworkEditorScreen(
     val vm: EditorViewModel = viewModel { EditorViewModel(container) }
     val network by vm.network.collectAsState()
     val scope = rememberCoroutineScope()
-
-
+    val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(networkId) { vm.load(networkId) }
 
     var tab by remember { mutableIntStateOf(0) }
     var showImportDialog by remember { mutableStateOf(false) }
-    var importText by remember { mutableStateOf("") }
-    var importError by remember { mutableStateOf<String?>(null) }
+    var showExportDialog by remember { mutableStateOf(false) }
 
     val saved = network ?: return
 
@@ -148,6 +149,7 @@ fun NetworkEditorScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
@@ -163,6 +165,9 @@ fun NetworkEditorScreen(
                 )
                 IconButton(onClick = { showImportDialog = true }) {
                     Icon(AppIcons.Upload, "导入 TOML")
+                }
+                IconButton(onClick = { showExportDialog = true }) {
+                    Icon(AppIcons.Download, "导出 TOML")
                 }
                 IconButton(onClick = ::saveOnly) {
                     Icon(AppIcons.Save, "保存")
@@ -221,28 +226,21 @@ fun NetworkEditorScreen(
     }
 
     if (showImportDialog) {
-        com.easytier.android.ui.components.TextInputDialog(
-            title = "导入 TOML",
-            initialValue = importText,
-            label = "粘贴 EasyTier TOML 配置",
+        TomlImportDialog(
+            initialText = "",
             onDismiss = { showImportDialog = false },
-            onConfirm = { text ->
-                TomlImporter.parse(text)
-                    .onSuccess { cfg ->
-                        vm.update { cfg }
-                        importError = null
-                        showImportDialog = false
-                    }
-                    .onFailure { importError = it.message }
+            onImported = { cfg ->
+                vm.update { cfg }
+                showImportDialog = false
+                scope.launch { snackbar.showSnackbar("已导入配置「${cfg.networkName}」，记得保存") }
             },
         )
     }
-    importError?.let { err ->
-        // 简单错误提示：显示在导入按钮下方
-        Text(
-            "导入失败: $err",
-            color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodySmall,
+    if (showExportDialog) {
+        TomlExportDialog(
+            toml = remember(saved.config) { TomlGenerator.generate(saved.config) },
+            networkName = saved.config.networkName,
+            onDismiss = { showExportDialog = false },
         )
     }
 }
