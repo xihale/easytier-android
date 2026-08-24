@@ -511,12 +511,6 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
         checked = config.enableExitNode ?: false,
         onCheckedChange = { v -> update { it.copy(enableExitNode = v) } },
     )
-    Text(
-        "SOCKS5 代理等应用层设置已移至「设置 → 应用层」。",
-        modifier = FormHorizontalPadding,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 // ---------- Advanced 标签 ----------

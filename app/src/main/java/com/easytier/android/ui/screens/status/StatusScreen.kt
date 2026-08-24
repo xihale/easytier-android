@@ -39,6 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -62,7 +64,6 @@ import com.easytier.android.ui.components.EmptyState
 import com.easytier.android.ui.components.InfoRow
 import com.easytier.android.ui.components.PillBadge
 import com.easytier.android.ui.components.RateChart
-import com.easytier.android.ui.components.RateRow
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.StatusDot
 import com.easytier.android.ui.icons.AppIcons
@@ -362,32 +363,36 @@ private fun NodeDetails(info: NetworkInstanceRunningInfo) {
     }
     InfoRow("版本", info.myNodeInfo?.version ?: "--")
     val listeners = info.myNodeInfo?.publicListeners().orEmpty()
-    Text(
-        "监听",
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-    )
-    if (listeners.isEmpty()) {
+    // 监听行：与 InfoRow 相同的「标签左 / 内容右」结构；FlowRow 负责换行，
+    // 横向 spacedBy 是关键——否则同一行的胶囊会直接贴在一起
+    Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.Top) {
         Text(
-            "无对外监听",
+            "监听",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.End,
+            modifier = Modifier.padding(end = 12.dp),
         )
-    } else {
-        FlowRow(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            listenerLabels(listeners).forEach { label -> ListenerChip(label) }
+        if (listeners.isEmpty()) {
+            Text(
+                "无对外监听",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            FlowRow(
+                Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listenerLabels(listeners).forEach { label -> ListenerChip(label) }
+            }
         }
     }
 }
 
-/** 流量卡：速率曲线 + 实时速率 + 累计流量。 */
+/** 流量卡：速率曲线 + 下/上行两列（实时速率与累计流量，颜色对应曲线）。 */
 @Composable
 private fun TrafficCard(
     rxRate: Long,
@@ -397,27 +402,68 @@ private fun TrafficCard(
     rxTotal: Long,
     txTotal: Long,
 ) {
-
     AppCard {
         Column(Modifier.padding(16.dp)) {
             Text("流量", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
             RateChart(rxHistory = rxHistory, txHistory = txHistory)
             Spacer(Modifier.height(12.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                RateRow(AppIcons.ArrowDownward, Format.bps(rxRate), tint = MaterialTheme.colorScheme.primary)
-                RateRow(AppIcons.ArrowUpward, Format.bps(txRate), tint = MaterialTheme.colorScheme.tertiary)
-                Text(
-                    "累计 ↓${Format.bytes(rxTotal)} ↑${Format.bytes(txTotal)}",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Row(Modifier.fillMaxWidth()) {
+                TrafficStat(
+                    icon = AppIcons.ArrowDownward,
+                    label = "下行",
+                    rate = Format.bps(rxRate),
+                    total = Format.bytes(rxTotal),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                )
+                TrafficStat(
+                    icon = AppIcons.ArrowUpward,
+                    label = "上行",
+                    rate = Format.bps(txRate),
+                    total = Format.bytes(txTotal),
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
+    }
+}
+
+/** 单方向速率块：方向标题 + 实时速率（等宽加粗）+ 累计流量。 */
+@Composable
+private fun TrafficStat(
+    icon: ImageVector,
+    label: String,
+    rate: String,
+    total: String,
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = tint, modifier = Modifier.size(14.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = tint,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+        Text(
+            rate,
+            style = MaterialTheme.typography.titleMedium,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        Text(
+            "累计 $total",
+            style = MaterialTheme.typography.labelMedium,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp),
+        )
     }
 }
 
