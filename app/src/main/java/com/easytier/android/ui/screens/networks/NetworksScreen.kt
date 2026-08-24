@@ -231,14 +231,17 @@ fun NetworksScreen(
                     }
                 }
             }
-            items(networks, key = { it.id }) { network ->
-                NetworkCard(
-                    network = network,
-                    state = states[network.config.networkName],
-                    onToggleEnabled = { on -> vm.setEnabled(network, on) },
-                    onEdit = { onEditNetwork(network.id) },
-                    onDelete = { pendingDelete = network },
-                )
+            items(networks, key = { it.id }, contentType = { "network" }) { network ->
+                // animateItem：增删/重排平滑过渡，而非瞬间跳位
+                Box(Modifier.animateItem()) {
+                    NetworkCard(
+                        network = network,
+                        state = states[network.config.networkName],
+                        onToggleEnabled = { on -> vm.setEnabled(network, on) },
+                        onEdit = { onEditNetwork(network.id) },
+                        onDelete = { pendingDelete = network },
+                    )
+                }
             }
         }
 

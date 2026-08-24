@@ -215,8 +215,11 @@ fun StatusScreen(
                         taggedPeers,
                         // peerId 在同一 network 内唯一；不要掺入位置 index，否则 key 随重排变化失去稳定意义
                         key = { p -> "${p.network}-${p.pair.route.peerId}-${p.pair.defaultConn?.connId ?: ""}" },
+                        contentType = { "peer" },
                     ) { tagged ->
-                        PeerCard(tagged.pair, networkName = if (multi) tagged.network else null)
+                        Box(Modifier.animateItem()) {
+                            PeerCard(tagged.pair, networkName = if (multi) tagged.network else null)
+                        }
                     }
                 }
             }

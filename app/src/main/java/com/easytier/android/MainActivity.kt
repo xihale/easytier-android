@@ -6,9 +6,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -80,7 +83,12 @@ private fun EasyTierAppNavHost(container: AppContainer) {
 
     Scaffold(
         bottomBar = {
-            if (currentRoute in topLevelRoutes) {
+            // 进出编辑页时底栏滑入/滑出而非瞬间消失，避免内容区跳变带来的顿挫感
+            AnimatedVisibility(
+                visible = currentRoute in topLevelRoutes,
+                enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 2 },
+                exit = fadeOut(tween(160)) + slideOutVertically(tween(160)) { it / 2 },
+            ) {
                 NavigationBar {
                     TopDestination.entries.forEach { dest ->
                         val route = dest.name.lowercase()
