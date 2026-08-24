@@ -166,7 +166,7 @@ fun PillBadge(
     }
 }
 
-/** 分组标题（中性色小号加字距，不用蓝色）。可选 trailing 与标题同行居中对齐。 */
+/** 分组标题（中性色小号，中文不拉开字距）。可选 trailing 与标题同行居中对齐。 */
 @Composable
 fun SectionHeader(
     title: String,
@@ -176,8 +176,8 @@ fun SectionHeader(
     if (trailing == null) {
         Text(
             title,
-            style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.2.sp),
-            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = modifier.padding(top = 20.dp, bottom = 8.dp),
         )
@@ -188,8 +188,8 @@ fun SectionHeader(
         ) {
             Text(
                 title,
-                style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.2.sp),
-                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.weight(1f))

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -197,21 +198,26 @@ fun SettingsScreen() {
             SectionHeader("关于")
             AppCard {
                 Column(Modifier.padding(vertical = 4.dp)) {
+                    // 关于组：每项只留一行，版本号放行尾，不加副标题
                     SettingRow(
                         title = "版本",
-                        subtitle = com.easytier.android.BuildConfig.VERSION_NAME,
                         icon = Icons.Filled.Info,
+                        trailing = {
+                            Text(
+                                com.easytier.android.BuildConfig.VERSION_NAME,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
                     )
                     SettingRow(
                         title = "VPN 权限",
-                        subtitle = "检查 / 授予 Always-On VPN 权限",
                         icon = AppIcons.Shield,
                         onClick = requestVpnPermission,
+                        trailing = { Chevron() },
                     )
-// 图标改用 Language 避免与「版本」重复
                     SettingRow(
                         title = "项目主页",
-                        subtitle = "GitHub：EasyTier 核心（Rust）与开源组件",
                         icon = AppIcons.Language,
                         onClick = {
                             context.startActivity(
@@ -221,6 +227,7 @@ fun SettingsScreen() {
                                 ),
                             )
                         },
+                        trailing = { Chevron() },
                     )
                 }
             }
@@ -257,6 +264,15 @@ fun SettingsScreen() {
             },
         )
     }
+}
+
+@Composable
+private fun Chevron() {
+    Icon(
+        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable

@@ -43,7 +43,7 @@ import com.easytier.android.ui.icons.AppIcons
  * headline 为 null 时不渲染大字行（不再显示提示文案）。
  * 未运行时也不显示标题，图标右侧仅保留状态点 + 状态行。
  * 渐变用固定深蓝（不取主题色）：深色主题下 primary 是浅色，白字会失去对比度；
- * 未运行时用灰色渐变弱化。右上角 mesh 节点连线是全应用的「特色符号」装饰。
+ * 未运行时用低饱和靛蓝渐变弱化。右上角 mesh 节点连线是全应用的「特色符号」装饰。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -227,6 +227,7 @@ private fun DrawScope.drawMeshDecoration() {
 
 private val HeroStart = Color(0xFF2A4FD0)
 private val HeroEnd = Color(0xFF5E7CF5)
-private val HeroIdleStart = Color(0xFF454B5E)
-private val HeroIdleEnd = Color(0xFF5C6377)
+// 未运行态：与主蓝同色相的低饱和靛蓝（纯灰在明暗两种主题下都显脏）
+private val HeroIdleStart = Color(0xFF3E4A85)
+private val HeroIdleEnd = Color(0xFF5A67A8)
 private val StatusGreen = Color(0xFF34D399)
