@@ -41,7 +41,7 @@ import com.easytier.android.ui.icons.AppIcons
  * 首页 Hero 卡：EasyTier 服务（TUN）开关，与下面各网络的启停开关解耦。
  * 开 = 建立系统 VPN（TUN）；关 = 仅关闭 TUN，网络实例不受影响。
  * headline 为 null 时不渲染大字行（不再显示提示文案）。
- * 未运行时显示「EasyTier 服务」标题；运行中隐藏（品牌名在卡片上方），只保留状态行。
+ * 未运行时也不显示标题，图标右侧仅保留状态点 + 状态行。
  * 渐变用固定深蓝（不取主题色）：深色主题下 primary 是浅色，白字会失去对比度；
  * 未运行时用灰色渐变弱化。右上角 mesh 节点连线是全应用的「特色符号」装饰。
  */
@@ -91,26 +91,18 @@ fun ServiceHeroCard(
                     )
                 }
                 Column(Modifier.padding(start = 12.dp)) {
-                    // 运行中不再重复显示「EasyTier 服务」标题（品牌名就在卡片正上方），只留状态行
-                    if (!running) {
-                        Text(
-                            "EasyTier 服务",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         StatusDot(
                             if (running) StatusGreen else Color.White.copy(alpha = 0.6f),
-                            size = 8.dp,
+                            size = 10.dp,
                             pulse = running,
                         )
                         Text(
                             statusText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.85f),
-                            modifier = Modifier.padding(start = 6.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White.copy(alpha = 0.9f),
+                            modifier = Modifier.padding(start = 8.dp),
                         )
                     }
                 }

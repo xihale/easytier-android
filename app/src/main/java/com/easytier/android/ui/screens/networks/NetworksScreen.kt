@@ -59,7 +59,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -173,15 +172,6 @@ fun NetworksScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // 品牌页头：应用名大字，紧跟 Hero 卡
-            item(key = "brand") {
-                Text(
-                    "EasyTier",
-                    style = MaterialTheme.typography.headlineSmall.copy(letterSpacing = 0.2.sp),
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
-                )
-            }
             item(key = "hero") {
                 ServiceHeroCard(
                     running = serviceRunning,
