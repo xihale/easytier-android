@@ -19,15 +19,24 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import com.easytier.android.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -196,48 +205,83 @@ fun SettingsScreen() {
                 }
             }
 
-            // 「关于」分组卡片：图标 Info / Shield / Language / Description
+            // 「关于」分组卡片
             SectionHeader("关于")
             AppCard {
-                Column(Modifier.padding(vertical = 4.dp)) {
-                    // 关于组：每项只留一行，版本号放行尾，不加副标题
-                    SettingRow(
-                        title = "版本",
-                        icon = Icons.Filled.Info,
-                        trailing = {
+                Column {
+                    // 头部：大应用图标、名称、版本胶囊、简述
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 20.dp, bottom = 16.dp, start = 16.dp, end = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.ic_launcher),
+                            contentDescription = "EasyTier Logo",
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(RoundedCornerShape(16.dp)),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = "EasyTier",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
                             Text(
-                                com.easytier.android.BuildConfig.VERSION_NAME,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                text = "v${com.easytier.android.BuildConfig.VERSION_NAME} (Native)",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             )
-                        },
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "去中心化 P2P 虚拟网状网络客户端",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                     )
-                    SettingRow(
-                        title = "VPN 权限",
-                        icon = AppIcons.Shield,
-                        onClick = requestVpnPermission,
-                        trailing = { Chevron() },
-                    )
-                    SettingRow(
-                        title = "项目主页",
-                        icon = AppIcons.Language,
-                        onClick = {
-                            context.startActivity(
-                                Intent(
-                                    Intent.ACTION_VIEW,
-                                    android.net.Uri.parse("https://github.com/xihale/easytier-android"),
-                                ),
-                            )
-                        },
-                        trailing = { Chevron() },
-                    )
-                    SettingRow(
-                        title = "开源许可",
-                        subtitle = "本应用及内置组件的许可证",
-                        icon = AppIcons.Description,
-                        onClick = { showLicenseDialog = true },
-                        trailing = { Chevron() },
-                    )
+
+                    Column(Modifier.padding(vertical = 4.dp)) {
+                        SettingRow(
+                            title = "VPN 权限",
+                            icon = AppIcons.Shield,
+                            onClick = requestVpnPermission,
+                            trailing = { Chevron() },
+                        )
+                        SettingRow(
+                            title = "项目主页",
+                            icon = AppIcons.Language,
+                            onClick = {
+                                context.startActivity(
+                                    Intent(
+                                        Intent.ACTION_VIEW,
+                                        android.net.Uri.parse("https://github.com/xihale/easytier-android"),
+                                    ),
+                                )
+                            },
+                            trailing = { Chevron() },
+                        )
+                        SettingRow(
+                            title = "开源许可",
+                            subtitle = "本应用及内置组件的许可证",
+                            icon = AppIcons.Description,
+                            onClick = { showLicenseDialog = true },
+                            trailing = { Chevron() },
+                        )
+                    }
                 }
             }
 

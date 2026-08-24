@@ -1,6 +1,7 @@
 package com.easytier.android.ui.icons
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathBuilder
@@ -8,10 +9,51 @@ import androidx.compose.ui.graphics.vector.PathData
 import androidx.compose.ui.unit.dp
 
 /**
- * 按需内置的 Material 图标（提取自 material-icons-extended，避免引入整个图标库）。
- * 仅包含应用实际用到的图标，APK 体积远小于依赖 extended 库。
+ * 按需内置的 Material 图标与应用图标。
  */
 object AppIcons {
+
+    val EasyTierLogo: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "EasyTierLogo",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 1024f,
+            viewportHeight = 1024f,
+        ).addPath(
+            pathData = PathData {
+                moveTo(512f, 512f)
+                moveToRelative(-100f, 0f)
+                arcToRelative(100f, 100f, 0f, isMoreThanHalf = true, isPositiveArc = false, 200f, 0f)
+                arcToRelative(100f, 100f, 0f, isMoreThanHalf = true, isPositiveArc = false, -200f, 0f)
+            },
+            fill = SolidColor(Color(0xFFBB86FC)),
+        ).addPath(
+            pathData = PathData {
+                moveTo(512f, 280f)
+                arcTo(232f, 232f, 0f, isMoreThanHalf = false, isPositiveArc = true, 713f, 396f)
+            },
+            stroke = SolidColor(Color(0xFF03DAC6)),
+            strokeLineWidth = 80f,
+            strokeLineCap = StrokeCap.Round,
+        ).addPath(
+            pathData = PathData {
+                moveTo(311f, 628f)
+                arcTo(232f, 232f, 0f, isMoreThanHalf = false, isPositiveArc = true, 311f, 396f)
+            },
+            stroke = SolidColor(Color(0xFF03DAC6)),
+            strokeLineWidth = 80f,
+            strokeLineCap = StrokeCap.Round,
+        ).addPath(
+            pathData = PathData {
+                moveTo(713f, 628f)
+                arcTo(232f, 232f, 0f, isMoreThanHalf = false, isPositiveArc = true, 512f, 744f)
+            },
+            stroke = SolidColor(Color(0xFF03DAC6)),
+            strokeLineWidth = 80f,
+            strokeLineCap = StrokeCap.Round,
+        ).build()
+    }
 
     private fun icon(name: String, builder: PathBuilder.() -> Unit): ImageVector =
         ImageVector.Builder(

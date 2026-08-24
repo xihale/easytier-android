@@ -4,10 +4,10 @@
     android:height="108dp"
     android:viewportWidth="1024"
     android:viewportHeight="1024">
-    <!-- 背景圆角矩形 rx=200 -->
+    <!-- 圆形背景 -->
     <path
         android:fillColor="#131313"
-        android:pathData="M200,0 L824,0 A200,200 0 0,1 1024,200 L1024,824 A200,200 0 0,1 824,1024 L200,1024 A200,200 0 0,1 0,824 L0,200 A200,200 0 0,1 200,0 Z" />
+        android:pathData="M512,512m-512,0a512,512 0,1 1,1024 0a512,512 0,1 1,-1024 0" />
     <!-- 中心圆点（淡紫色） -->
     <path
         android:fillColor="#BB86FC"
