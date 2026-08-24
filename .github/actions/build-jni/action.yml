@@ -20,6 +20,10 @@ runs:
       with:
         workspaces: easytier-upstream
 
+    - name: Install protoc（prost-wkt-types 构建脚本需要）
+      run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      shell: bash
+
     - name: Install cargo-ndk
       run: cargo install cargo-ndk --locked
       shell: bash
