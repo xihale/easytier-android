@@ -1,0 +1,81 @@
+name: JNI Build
+
+# 手动触发：从 EasyTier/EasyTier 上游源码构建 libeasytier_android_jni.so，
+# 并作为资产上传到本仓库的 jni-* Release，供 CI / Release 工作流下载使用。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本标注（建议上游核心版本或 commit，如 2.3.1 或 abc1234）'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout EasyTier upstream
+        uses: actions/checkout@v4
+        with:
+          repository: EasyTier/EasyTier
+          path: easytier-upstream
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: aarch64-linux-android
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: easytier-upstream
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build libeasytier_android_jni.so (arm64-v8a)
+        env:
+          ANDROID_NDK_ROOT: /usr/local/lib/android/sdk/ndk-bundle
+        run: |
+          set -e
+          if [ ! -d "$ANDROID_NDK_ROOT" ]; then
+            ANDROID_NDK_ROOT=$(ls -d "$ANDROID_HOME"/ndk/* | sort | tail -1)
+          fi
+          echo "使用 NDK: $ANDROID_NDK_ROOT"
+          cd easytier-upstream/easytier-contrib/easytier-ffi
+          cargo ndk -t arm64-v8a build --release
+          cd ../easytier-android-jni
+          cargo ndk -t arm64-v8a build --release
+          mkdir -p "$RUNNER_TEMP/jni"
+          cp "$GITHUB_WORKSPACE/easytier-upstream/target/aarch64-linux-android/release/libeasytier_android_jni.so" \
+             "$RUNNER_TEMP/jni/libeasytier_android_jni-arm64-v8a.so"
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          VERSION="${{ inputs.version }}"
+          [ -z "$VERSION" ] && VERSION="$(date +%Y%m%d)-$(cd easytier-upstream && git rev-parse --short HEAD)"
+          echo "tag=jni-${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve upstream commit
+        id: upstream
+        run: echo "sha=$(cd easytier-upstream && git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to jni-* Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: JNI ${{ steps.tag.outputs.tag }}
+          body: |
+            EasyTier 核心 JNI 预编译产物（arm64-v8a）。
+            版本标注：${{ inputs.version || '自动生成' }}
+            上游 commit：${{ steps.upstream.outputs.sha }}
+          files: ${{ runner.temp }}/jni/libeasytier_android_jni-arm64-v8a.so
