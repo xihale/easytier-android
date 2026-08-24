@@ -4,7 +4,7 @@ import android.content.Intent
 import android.net.VpnService
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +36,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -272,12 +273,16 @@ private fun ChoiceDialog(
         text = {
             Column {
                 options.forEach { (key, label) ->
-                    // 整行可点；RadioButton 只做展示，避免双触发
+                    // 整行可点（带 RadioButton 语义）；选中即关闭，无需确认按钮
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable { onSelect(key) }
-                            .padding(vertical = 4.dp),
+                            .selectable(
+                                selected = key == selected,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(key) },
+                            )
+                            .padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -287,9 +292,7 @@ private fun ChoiceDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("确定") }
-        },
+        confirmButton = {},
     )
 }
 
