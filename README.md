@@ -37,4 +37,5 @@ CI 在 tag（`v*`）推送时自动构建并发布 Release APK。签名通过仓
 
 ## 致谢
 
-- [EasyTier](https://github.com/EasyTier/EasyTier)：去中心化组网核心（本仓库 `jniLibs` 内的 `.so` 来自 [easytier-contrib/easytier-android-jni](https://github.com/easytier-contrib/easytier-android-jni)，遵循上游 LGPL-3.0）
+- [EasyTier](https://github.com/EasyTier/EasyTier)：去中心化组网核心，遵循 LGPL-3.0。
+  本仓库 `jniLibs/` 内的 `libeasytier_android_jni.so` 为预编译产物（JNI 封装源码不在本仓库内）。
