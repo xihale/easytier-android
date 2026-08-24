@@ -5,6 +5,7 @@ import android.os.Looper
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.widget.Toast
+import android.util.Log
 import com.easytier.android.EasyTierApp
 import com.easytier.android.R
 import kotlinx.coroutines.Job
@@ -49,6 +50,7 @@ class QuickSettingsTileService : TileService() {
         super.onClick()
         val app = applicationContext as? EasyTierApp ?: return
         val controller = app.container.vpnController
+        Log.d(TAG, "onClick: running=${controller.serviceRunning.value}")
         if (controller.serviceRunning.value) {
             controller.stopService()
             return
@@ -56,6 +58,7 @@ class QuickSettingsTileService : TileService() {
         app.applicationScope.launch {
             val enabled = app.container.networksRepository.networks.first().filter { it.enabled }
             if (enabled.isEmpty()) {
+                Log.d(TAG, "启动取消：没有勾选的网络")
                 mainHandler.post {
                     Toast.makeText(applicationContext, R.string.tile_no_network, Toast.LENGTH_SHORT).show()
                 }
@@ -75,5 +78,9 @@ class QuickSettingsTileService : TileService() {
             else -> Tile.STATE_INACTIVE
         }
         tile.updateTile()
+    }
+
+    companion object {
+        private const val TAG = "QuickSettingsTile"
     }
 }

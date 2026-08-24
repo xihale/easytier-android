@@ -32,6 +32,11 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- 磁贴长按跳转到应用（替代默认的应用信息页） -->
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <service
@@ -50,7 +55,7 @@
         <service
             android:name=".core.vpn.QuickSettingsTileService"
             android:exported="true"
-            android:icon="@drawable/ic_stat_vpn"
+            android:icon="@drawable/ic_tile_easytier"
             android:label="@string/tile_label"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
