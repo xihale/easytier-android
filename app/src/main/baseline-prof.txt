@@ -1,0 +1,45 @@
+# Baseline Profile（手工规则版）
+#
+# 作用：首次启动与首次滚动时，下列热路径代码已预编译（JIT→AOT），显著降低首帧卡顿。
+# 打包时 AGP 会把本文件编进 APK assets/dexopt/baseline.prof，
+# 由 profileinstaller 在设备上安装（Android 9+ 运行时安装，7~8.x 安装期编译）。
+#
+# 规则语法：
+#   L<class>;->method(**)**  类加载
+#   HSPL<...>                方法 Hot/Startup/PostStartup 编译
+# 更精细的规则可用 :baselineprofile 模块在真机上自动生成后替换本文件。
+
+# ---- Compose（启动即用：渲染、重组、动画）----
+HSPLandroidx/compose/runtime/**->**(**)**
+Landroidx/compose/runtime/**;
+HSPLandroidx/compose/ui/**->**(**)**
+Landroidx/compose/ui/**;
+HSPLandroidx/compose/foundation/**->**(**)**
+Landroidx/compose/foundation/**;
+HSPLandroidx/compose/animation/**->**(**)**
+Landroidx/compose/animation/**;
+HSPLandroidx/compose/material3/**->**(**)**
+Landroidx/compose/material3/**;
+Landroidx/compose/material/icons/**;
+
+# ---- 框架入口 / 导航 / 生命周期 ----
+HSPLandroidx/activity/**->**(**)**
+Landroidx/activity/**;
+HSPLandroidx/navigation/**->**(**)**
+Landroidx/navigation/**;
+HSPLandroidx/lifecycle/**->**(**)**
+Landroidx/lifecycle/**;
+HSPLandroidx/core/**->**(**)**
+Landroidx/core/**;
+HSPLandroidx/datastore/**->**(**)**
+Landroidx/datastore/**;
+
+# ---- 协程与序列化（引擎状态轮询、配置存取热路径）----
+HSPLkotlinx/coroutines/**->**(**)**
+Lkotlinx/coroutines/**;
+HSPLkotlinx/serialization/**->**(**)**
+Lkotlinx/serialization/**;
+
+# ---- 应用自身（MainActivity、UI、JNI 封装、数据层）----
+HSPLcom/easytier/android/**->**(**)**
+Lcom/easytier/android/**;
