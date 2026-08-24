@@ -17,3 +17,6 @@ local.properties
 # Misc
 .DS_Store
 /captures
+
+# 预编译产物不入库：由 CI 从 EasyTier/EasyTier 源码构建，或本地按 README 手动放置
+app/src/main/jniLibs/

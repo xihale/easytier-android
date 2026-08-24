@@ -12,7 +12,12 @@ EasyTier 核心引擎（`libeasytier_android_jni.so`），不依赖 Tauri / WebV
 
 ## 构建
 
-要求 JDK 17+ 与 Android SDK（API 36）。
+要求 JDK 17+ 与 Android SDK（API 36）。仓库不含预编译的 `libeasytier_android_jni.so`，构建前需先行获取：
+
+- **方式一**：本地克隆 [EasyTier/EasyTier](https://github.com/EasyTier/EasyTier)，在
+  `easytier-contrib/easytier-android-jni` 下按其 README 用 `build.sh`（cargo-ndk）构建，
+  把生成的 `libeasytier_android_jni.so` 放到 `app/src/main/jniLibs/arm64-v8a/`
+- **方式二**：直接用本仓库的 CI / Release workflow，会自动从上游源码现场构建
 
 ```bash
 ./gradlew :app:assembleDebug    # 调试包
@@ -38,4 +43,4 @@ CI 在 tag（`v*`）推送时自动构建并发布 Release APK。签名通过仓
 ## 致谢
 
 - [EasyTier](https://github.com/EasyTier/EasyTier)：去中心化组网核心，遵循 LGPL-3.0。
-  本仓库 `jniLibs/` 内的 `libeasytier_android_jni.so` 为预编译产物（JNI 封装源码不在本仓库内）。
+  本应用通过其 `easytier-contrib/easytier-android-jni` 提供的 JNI 绑定调用引擎（构建时从上游源码编译）。
