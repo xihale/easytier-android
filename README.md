@@ -43,10 +43,10 @@ cd easytier-contrib/easytier-android-jni && ../build.sh
 # 2. 按约定命名资产并上传（版本号建议标注上游核心版本或提交）
 SO=target/android/arm64-v8a/libeasytier_android_jni.so
 cp "$SO" /tmp/libeasytier_android_jni-arm64-v8a.so
-gh release create jni-<版本> --repo xihale/easytier-android-native \
+gh release create jni-<版本> --repo xihale/easytier-android \
   --title "JNI <版本>" --notes "EasyTier 核心 <版本/commit>，arm64-v8a"
 gh release upload jni-<版本> /tmp/libeasytier_android_jni-arm64-v8a.so \
-  --repo xihale/easytier-android-native --clobber
+  --repo xihale/easytier-android --clobber
 ```
 
 ## 发布签名
@@ -61,6 +61,12 @@ CI 在 tag（`v*`）推送时自动构建并发布 Release APK。签名通过仓
 | `SIGNING_KEY_PASSWORD` | key 密码 |
 
 未配置 Secrets 时回退为 debug 签名。
+
+发布 APK Release 时，notes 请保留一句许可声明（LGPLv3 §4a 要求随副本附显著声明，应用内
+「设置 → 关于 → 开源许可」已内置全文）：
+
+> 核心引擎为 [EasyTier](https://github.com/EasyTier/EasyTier)（LGPL-3.0），以预编译
+> `libeasytier_android_jni.so` 动态链接，对应源码见上游仓库（版本/commit 以 `jni-*` Release 标注为准）。
 
 ## 致谢
 

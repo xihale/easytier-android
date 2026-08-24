@@ -456,4 +456,36 @@ object AppIcons {
         }
     }
 
+    val Description: ImageVector by lazy {
+        icon("Description") {
+            moveTo(14.0f, 2.0f)
+            horizontalLineTo(6.0f)
+            curveToRelative(-1.1f, 0.0f, -1.99f, 0.9f, -1.99f, 2.0f)
+            lineTo(4.0f, 20.0f)
+            curveToRelative(0.0f, 1.1f, 0.89f, 2.0f, 1.99f, 2.0f)
+            horizontalLineTo(18.0f)
+            curveToRelative(1.1f, 0.0f, 2.0f, -0.9f, 2.0f, -2.0f)
+            verticalLineTo(8.0f)
+            lineTo(14.0f, 2.0f)
+            close()
+            moveTo(16.0f, 18.0f)
+            horizontalLineTo(8.0f)
+            verticalLineTo(16.0f)
+            horizontalLineTo(16.0f)
+            verticalLineTo(18.0f)
+            close()
+            moveTo(16.0f, 14.0f)
+            horizontalLineTo(8.0f)
+            verticalLineTo(12.0f)
+            horizontalLineTo(16.0f)
+            verticalLineTo(14.0f)
+            close()
+            moveTo(13.0f, 9.0f)
+            verticalLineTo(3.5f)
+            lineTo(18.5f, 9.0f)
+            horizontalLineTo(13.0f)
+            close()
+        }
+    }
+
 }

@@ -49,6 +49,7 @@ import com.easytier.android.data.store.AppSettings
 import com.easytier.android.data.store.SettingsRepository
 import com.easytier.android.ui.components.AppCard
 import com.easytier.android.ui.components.ChoiceRow
+import com.easytier.android.ui.components.OssLicensesDialog
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.SettingRow
 import com.easytier.android.ui.components.SwitchRow
@@ -100,6 +101,7 @@ fun SettingsScreen() {
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showSocks5Dialog by remember { mutableStateOf(false) }
+    var showLicenseDialog by remember { mutableStateOf(false) }
 
     // VPN 权限申请：未授权时弹系统授权框；已授权也提示用户当前状态
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
@@ -194,7 +196,7 @@ fun SettingsScreen() {
                 }
             }
 
-            // 「关于」分组卡片：图标去重 Info / Shield / Language
+            // 「关于」分组卡片：图标 Info / Shield / Language / Description
             SectionHeader("关于")
             AppCard {
                 Column(Modifier.padding(vertical = 4.dp)) {
@@ -223,10 +225,17 @@ fun SettingsScreen() {
                             context.startActivity(
                                 Intent(
                                     Intent.ACTION_VIEW,
-                                    android.net.Uri.parse("https://github.com/EasyTier/EasyTier"),
+                                    android.net.Uri.parse("https://github.com/xihale/easytier-android"),
                                 ),
                             )
                         },
+                        trailing = { Chevron() },
+                    )
+                    SettingRow(
+                        title = "开源许可",
+                        subtitle = "本应用及内置组件的许可证",
+                        icon = AppIcons.Description,
+                        onClick = { showLicenseDialog = true },
                         trailing = { Chevron() },
                     )
                 }
@@ -245,6 +254,9 @@ fun SettingsScreen() {
             onSelect = { vm.setTheme(it); showThemeDialog = false },
             onDismiss = { showThemeDialog = false },
         )
+    }
+    if (showLicenseDialog) {
+        OssLicensesDialog(onDismiss = { showLicenseDialog = false })
     }
     if (showSocks5Dialog) {
         com.easytier.android.ui.components.TextInputDialog(
