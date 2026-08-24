@@ -23,12 +23,30 @@ android {
         }
     }
 
+    // 正式签名从环境变量读取（供 CI 使用）；本地未设置时回退 debug 签名便于安装调试
+    val releaseStoreFile = System.getenv("SIGNING_KEYSTORE_FILE")
+    val hasReleaseSigning = !releaseStoreFile.isNullOrBlank()
+    if (hasReleaseSigning) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = System.getenv("SIGNING_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            // 本地开发先用 debug 签名便于安装调试；正式发布时换独立 keystore
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                // 本地开发先用 debug 签名便于安装调试；CI 配置 Secrets 后走上面分支
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
