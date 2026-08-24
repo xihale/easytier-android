@@ -505,11 +505,13 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
     }
 
     SectionHeader("运行选项", modifier = FormHorizontalPadding)
+    // 基本页最后一行，不画分割线
     SwitchRow(
         title = "作为出口节点",
         subtitle = "允许其他节点将本机作为出口网关",
         checked = config.enableExitNode ?: false,
         onCheckedChange = { v -> update { it.copy(enableExitNode = v) } },
+        divider = false,
     )
 }
 
