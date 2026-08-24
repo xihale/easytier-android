@@ -168,13 +168,12 @@ fun SettingsScreen() {
                             },
                         )
                     }
-                    // 组内最后一行去掉 divider
+                    
                     SwitchRow(
                         title = "开机自启",
                         subtitle = "设备开机后自动启动服务，拉起全部勾选的网络",
                         icon = AppIcons.Terminal,
                         checked = s.autoStartOnBoot,
-                        divider = false,
                         onCheckedChange = { vm.setAutoStart(context, it) },
                     )
                 }
@@ -188,7 +187,6 @@ fun SettingsScreen() {
                         title = "主题",
                         value = THEME_OPTIONS.firstOrNull { it.first == s.themeMode }?.second ?: s.themeMode,
                         icon = AppIcons.DarkMode,
-                        divider = false,
                         onClick = { showThemeDialog = true },
                     )
                 }
@@ -209,12 +207,11 @@ fun SettingsScreen() {
                         icon = AppIcons.Shield,
                         onClick = requestVpnPermission,
                     )
-                    // 组内最后一行去掉 divider；图标改用 Language 避免与「版本」重复
+// 图标改用 Language 避免与「版本」重复
                     SettingRow(
                         title = "项目主页",
                         subtitle = "GitHub：EasyTier 核心（Rust）与开源组件",
                         icon = AppIcons.Language,
-                        divider = false,
                         onClick = {
                             context.startActivity(
                                 Intent(

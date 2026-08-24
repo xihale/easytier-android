@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -34,7 +33,6 @@ fun SettingRow(
     icon: ImageVector? = null,
     trailing: @Composable () -> Unit = {},
     onClick: (() -> Unit)? = null,
-    divider: Boolean = true,
 ) {
     val rowModifier = if (onClick != null) {
         Modifier.fillMaxWidth().then(modifier).clickable(onClick = onClick)
@@ -78,14 +76,6 @@ fun SettingRow(
         }
         trailing()
     }
-    // 分组最后一行传 divider = false，避免分割线贴着下一组标题；
-    // 缩进 start 68dp（16 padding + 36 图标 + 16 间距）避开图标列
-    if (divider) {
-        HorizontalDivider(
-            modifier = Modifier.padding(start = 68.dp),
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-        )
-    }
 }
 
 /** 带开关的设置行（onCheckedChange 放最后，支持尾随 lambda）。 */
@@ -96,7 +86,6 @@ fun SwitchRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     icon: ImageVector? = null,
-    divider: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     SettingRow(
@@ -106,7 +95,6 @@ fun SwitchRow(
         modifier = modifier,
         // 整行可点；Switch 只做展示（onCheckedChange = null），避免行点击 + 开关自身点击双触发
         onClick = { onCheckedChange(!checked) },
-        divider = divider,
         trailing = {
             Switch(checked = checked, onCheckedChange = null)
         },
@@ -122,7 +110,6 @@ fun ChoiceRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     icon: ImageVector? = null,
-    divider: Boolean = true,
 ) {
     SettingRow(
         title = title,
@@ -130,7 +117,6 @@ fun ChoiceRow(
         icon = icon,
         modifier = modifier,
         onClick = onClick,
-        divider = divider,
         trailing = {
             Text(
                 value,

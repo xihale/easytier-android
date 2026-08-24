@@ -511,7 +511,6 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
         subtitle = "允许其他节点将本机作为出口网关",
         checked = config.enableExitNode ?: false,
         onCheckedChange = { v -> update { it.copy(enableExitNode = v) } },
-        divider = false,
     )
 }
 
