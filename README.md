@@ -28,9 +28,13 @@ EasyTier 核心引擎（`libeasytier_android_jni.so`），不依赖 Tauri / WebV
 
 ## JNI 库版本管理
 
-`.so` 在本地从 [EasyTier/EasyTier](https://github.com/EasyTier/EasyTier) 的
-`easytier-contrib/easytier-android-jni` 构建后上传到本仓库的 Release（tag 以 `jni-` 开头，
-不会触发 APK 发布），CI 取其中最新的一份：
+`.so` 构建后上传到本仓库的 Release（tag 以 `jni-` 开头，不会触发 APK 发布），CI 取其中最新的一份。
+
+**更新方式（二选一）：**
+
+- **推荐**：GitHub Actions 页面手动运行 **JNI Build** 工作流，可在 `version` 输入框填上游核心版本或
+  commit 作为标注；它会自动构建并上传为新的 `jni-*` Release
+- **本地手动**：在本机能直连 `uploads.github.com` 时（必要时挂代理）：
 
 ```bash
 # 1. 构建（在上游 EasyTier 克隆内）
