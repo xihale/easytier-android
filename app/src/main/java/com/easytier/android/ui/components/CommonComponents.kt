@@ -1,12 +1,20 @@
 package com.easytier.android.ui.components
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -20,49 +28,111 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.easytier.android.core.engine.InstanceState
 import com.easytier.android.ui.theme.LocalStatusColors
 
-/** 统一卡片外观：所有列表/信息卡走同一容器色与圆角。 */
+/** 统一卡片外观：扁平（无阴影）+ 极细描边 + surfaceContainerLowest 默认底色。 */
 @Composable
 fun AppCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
-    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLow,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLowest,
     content: @Composable () -> Unit,
 ) {
     val colors = CardDefaults.cardColors(containerColor = containerColor)
+    // 扁平化：全部交互态 elevation 归零，仅靠细描边分层
+    val elevation = CardDefaults.cardElevation(
+        defaultElevation = 0.dp,
+        pressedElevation = 0.dp,
+        focusedElevation = 0.dp,
+        hoveredElevation = 0.dp,
+        draggedElevation = 0.dp,
+        disabledElevation = 0.dp,
+    )
+    val border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     if (onClick != null) {
-        Card(onClick = onClick, modifier = modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, colors = colors) {
+        Card(
+            onClick = onClick,
+            modifier = modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            colors = colors,
+            elevation = elevation,
+            border = border,
+        ) {
             content()
         }
     } else {
-        Card(modifier = modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, colors = colors) {
+        Card(
+            modifier = modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            colors = colors,
+            elevation = elevation,
+            border = border,
+        ) {
             content()
         }
     }
 }
 
-/** 状态圆点（列表/节点状态统一指示）。 */
+/** 状态圆点（列表/节点状态统一指示）。pulse = true 时外圈呼吸光晕。 */
 @Composable
 fun StatusDot(
     color: Color,
     modifier: Modifier = Modifier,
     size: Dp = 10.dp,
+    pulse: Boolean = false,
 ) {
-    Box(
-        modifier
-            .size(size)
-            .background(color, CircleShape),
+    if (!pulse) {
+        Box(
+            modifier
+                .size(size)
+                .background(color, CircleShape),
+        )
+    } else {
+        PulsingStatusDot(color, modifier, size)
+    }
+}
+
+/** 呼吸光晕：2000ms 循环，外圈半径缓动扩张、alpha 在 0.18～0.32 间往复。 */
+@Composable
+private fun PulsingStatusDot(
+    color: Color,
+    modifier: Modifier,
+    size: Dp,
+) {
+    val transition = rememberInfiniteTransition(label = "statusDotPulse")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "statusDotPulseProgress",
     )
+    // 外层固定为圆点尺寸：光晕溢出绘制，不影响布局，避免相邻元素被呼吸动画推动
+    Box(
+        modifier.size(size),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(size * (1f + 1.6f * progress))
+                .background(color.copy(alpha = 0.32f - 0.14f * progress), CircleShape),
+        )
+        Box(Modifier.fillMaxSize().background(color, CircleShape))
+    }
 }
 
 /** 紧凑胶囊标签（替代 Material Chip：无交互、无 32dp 最小高度）。 */
@@ -96,7 +166,7 @@ fun PillBadge(
     }
 }
 
-/** 分组标题（设置页/编辑页/状态页共用，替代各页私有实现）。可选 trailing 与标题同行居中对齐。 */
+/** 分组标题（中性色小号加字距，不用蓝色）。可选 trailing 与标题同行居中对齐。 */
 @Composable
 fun SectionHeader(
     title: String,
@@ -106,21 +176,21 @@ fun SectionHeader(
     if (trailing == null) {
         Text(
             title,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.2.sp),
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = modifier.padding(top = 16.dp, bottom = 6.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = modifier.padding(top = 20.dp, bottom = 8.dp),
         )
     } else {
         Row(
-            modifier.padding(top = 16.dp, bottom = 6.dp),
+            modifier.padding(top = 20.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 title,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.2.sp),
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.weight(1f))
             trailing()
@@ -128,7 +198,7 @@ fun SectionHeader(
     }
 }
 
-/** 居中空状态（大图标 + 标题 + 引导文案）。 */
+/** 居中空状态（72dp 圆形容器图标 + 标题 + 引导文案）。 */
 @Composable
 fun EmptyState(
     icon: ImageVector,
@@ -140,20 +210,33 @@ fun EmptyState(
         modifier.padding(horizontal = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(
-            icon,
-            null,
-            tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
-            modifier = Modifier.size(64.dp),
+        Box(
+            Modifier
+                .size(72.dp)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                null,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
+                modifier = Modifier.size(32.dp),
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(16.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium)
         if (hint != null) {
+            Spacer(Modifier.height(6.dp))
             Text(
                 hint,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 6.dp),
+                textAlign = TextAlign.Center,
             )
         }
     }
@@ -180,6 +263,7 @@ fun InfoRow(
         Text(
             value,
             style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.End,
             modifier = Modifier.weight(1f),
@@ -187,7 +271,7 @@ fun InfoRow(
     }
 }
 
-/** 速率/流量展示（上/下行，颜色与流量图曲线一致）。 */
+/** 速率/流量展示（上/下行，颜色与流量图曲线一致）。数值用等宽字体。 */
 @Composable
 fun RateRow(
     icon: ImageVector,
@@ -199,6 +283,7 @@ fun RateRow(
         Text(
             rateText,
             style = MaterialTheme.typography.labelLarge,
+            fontFamily = FontFamily.Monospace,
             modifier = Modifier.padding(start = 4.dp),
         )
     }

@@ -24,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,10 +33,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -65,6 +71,7 @@ import com.easytier.android.util.Format
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /** 状态页 ViewModel：汇总全部运行中实例的流量。 */
 class StatusViewModel(val container: AppContainer) : ViewModel() {
@@ -121,6 +128,15 @@ fun StatusScreen(
     val rxHistory by vm.rxRateHistory.collectAsState()
     val txHistory by vm.txRateHistory.collectAsState()
 
+    // IP 点击复制反馈：剪贴板写入 + 底部 Snackbar「已复制」（LocalClipboardManager + AnnotatedString）
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
+    val copyIpToClipboard: (String) -> Unit = { ip ->
+        clipboard.setText(AnnotatedString(ip))
+        scope.launch { snackbarHostState.showSnackbar("已复制") }
+    }
+
     LaunchedEffect(Unit) {
         while (true) {
             delay(2000)
@@ -146,28 +162,30 @@ fun StatusScreen(
         info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.txBytesLong ?: 0 } }
     }
 
-    if (running.isEmpty()) {
-        val starting = states.values.any { it is InstanceState.Starting }
-        val error = states.values.filterIsInstance<InstanceState.Error>().firstOrNull()
-        // 居中空状态：Box 垂直水平居中，避免写死 top 偏移
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            EmptyState(
-                icon = AppIcons.CloudOff,
-                title = when {
-                    error != null -> "实例出错"
-                    starting -> "正在启动…"
-                    else -> "没有运行中的实例"
-                },
-                hint = error?.message ?: "回到「网络」页打开一个网络的开关",
-            )
-        }
-    } else {
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-                item { NodeInfoCard(running) }
+    // 外层 Box 承载内容与全局 SnackbarHost；空状态与列表两个分支都包在 Box 内
+    Box(Modifier.fillMaxSize()) {
+        if (running.isEmpty()) {
+            val starting = states.values.any { it is InstanceState.Starting }
+            val error = states.values.filterIsInstance<InstanceState.Error>().firstOrNull()
+            // 居中空状态：Box 垂直水平居中，避免写死 top 偏移
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                EmptyState(
+                    icon = AppIcons.CloudOff,
+                    title = when {
+                        error != null -> "实例出错"
+                        starting -> "正在启动…"
+                        else -> "没有运行中的实例"
+                    },
+                    hint = error?.message ?: "回到「网络」页打开一个网络的开关",
+                )
+            }
+        } else {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item { NodeInfoCard(running, onCopyIp = copyIpToClipboard) }
                 item {
                     TrafficCard(
                         rxRate = rxHistory.lastOrNull() ?: 0,
@@ -201,6 +219,12 @@ fun StatusScreen(
                     }
                 }
             }
+        }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 
@@ -209,7 +233,7 @@ fun StatusScreen(
 private fun ListenerChip(label: String) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(10.dp),
     ) {
         Text(
             label,
@@ -249,7 +273,10 @@ private val PROTO_ORDER = listOf("TCP", "UDP", "WG", "WS", "WSS", "QUIC", "TLS")
 /** 本机节点信息卡：多个运行中网络并列展示。 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun NodeInfoCard(running: List<Pair<String, NetworkInstanceRunningInfo>>) {
+private fun NodeInfoCard(
+    running: List<Pair<String, NetworkInstanceRunningInfo>>,
+    onCopyIp: (String) -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     val chevronRotation by animateFloatAsState(if (expanded) 180f else 0f, tween(200), label = "chevron")
     val single = running.singleOrNull()?.second
@@ -292,7 +319,11 @@ private fun NodeInfoCard(running: List<Pair<String, NetworkInstanceRunningInfo>>
                         style = MaterialTheme.typography.headlineSmall,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 8.dp),
+                        modifier = Modifier
+                            .padding(top = 8.dp)
+                            // 点击 IP 复制到剪贴板；clip 让涟漪不超出文本区域
+                            .clip(MaterialTheme.shapes.small)
+                            .clickable(onClickLabel = "复制 IP 地址") { onCopyIp(ip) },
                     )
                 }
                 Column(Modifier.padding(top = 8.dp)) {
@@ -382,6 +413,7 @@ private fun TrafficCard(
                 Text(
                     "累计 ↓${Format.bytes(rxTotal)} ↑${Format.bytes(txTotal)}",
                     style = MaterialTheme.typography.labelMedium,
+                    fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -435,6 +467,8 @@ private fun PeerCard(pair: PeerRoutePair, networkName: String? = null) {
                             isDirect -> statusColors.success
                             else -> statusColors.warning
                         },
+                        // 直接连接呼吸光晕，一眼区分 P2P 链路
+                        pulse = isDirect,
                     )
                     Text(
                         hostname,
@@ -456,7 +490,7 @@ private fun PeerCard(pair: PeerRoutePair, networkName: String? = null) {
             }
 
             Row(
-                Modifier.fillMaxWidth().padding(top = 8.dp),
+                Modifier.fillMaxWidth().padding(top = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -474,7 +508,7 @@ private fun PeerCard(pair: PeerRoutePair, networkName: String? = null) {
             }
 
             Row(
-                Modifier.fillMaxWidth().padding(top = 8.dp),
+                Modifier.fillMaxWidth().padding(top = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(

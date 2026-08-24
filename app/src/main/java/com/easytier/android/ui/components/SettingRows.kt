@@ -1,11 +1,15 @@
 package com.easytier.android.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,17 +37,35 @@ fun SettingRow(
     divider: Boolean = true,
 ) {
     val rowModifier = if (onClick != null) {
-        Modifier.fillMaxWidth().clickable(onClick = onClick)
-            .padding(vertical = 10.dp, horizontal = 4.dp)
+        Modifier.fillMaxWidth().then(modifier).clickable(onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 16.dp)
     } else {
-        Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 4.dp)
+        Modifier.fillMaxWidth().then(modifier).padding(vertical = 12.dp, horizontal = 16.dp)
     }
     Row(
         rowModifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        if (icon != null) Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+        // 图标放 36dp 圆角容器（primary 低透明底），统一视觉重量
+        if (icon != null) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .background(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.09f),
+                        RoundedCornerShape(12.dp),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    icon,
+                    null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             if (subtitle != null) {
@@ -56,9 +78,13 @@ fun SettingRow(
         }
         trailing()
     }
-    // 分组最后一行传 divider = false，避免分割线贴着下一组标题
+    // 分组最后一行传 divider = false，避免分割线贴着下一组标题；
+    // 缩进 start 68dp（16 padding + 36 图标 + 16 间距）避开图标列
     if (divider) {
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        HorizontalDivider(
+            modifier = Modifier.padding(start = 68.dp),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+        )
     }
 }
 

@@ -26,6 +26,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -49,6 +50,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -62,6 +64,7 @@ import com.easytier.android.data.model.NetworkConfig
 import com.easytier.android.data.model.NetworkingMethod
 import com.easytier.android.data.model.PortForwardEntry
 import com.easytier.android.data.model.SavedNetwork
+import com.easytier.android.ui.components.AppCard
 import com.easytier.android.ui.components.ConfirmDialog
 import com.easytier.android.ui.components.EmptyState
 import com.easytier.android.ui.components.IntField
@@ -78,6 +81,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+
+/**
+ * 表单内容的统一水平边距：滚动列本身不再加水平 padding——裸放的 SwitchRow 行内自带
+ * 16dp，页面再包一层会双重缩进成 32dp；故改由各非 SwitchRow 元素自行补齐这层 16dp。
+ */
+private val FormHorizontalPadding = Modifier.padding(horizontal = 16.dp)
 
 /** 编辑页 ViewModel。 */
 class EditorViewModel(val container: AppContainer) : ViewModel() {
@@ -292,7 +301,7 @@ fun NetworkEditorScreen(
                             Modifier
                                 .weight(1f)
                                 .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                .padding(vertical = 8.dp),
                         ) {
                             BasicTab(saved.config, vm::update)
                             Spacer(Modifier.height(16.dp))
@@ -301,7 +310,7 @@ fun NetworkEditorScreen(
                             Modifier
                                 .weight(1f)
                                 .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                .padding(vertical = 8.dp),
                         ) {
                             AdvancedTab(saved.config, vm::update)
                             Spacer(Modifier.height(16.dp))
@@ -310,7 +319,7 @@ fun NetworkEditorScreen(
                             Modifier
                                 .weight(1f)
                                 .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                .padding(vertical = 8.dp),
                         ) {
                             PortForwardTab(saved.config, vm::update)
                             Spacer(Modifier.height(16.dp))
@@ -323,7 +332,8 @@ fun NetworkEditorScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Button(
+                        // 层级：仅保存为次要操作走描边按钮，「保存并启用」才是唯一主操作
+                        OutlinedButton(
                             onClick = ::saveOnly,
                             modifier = Modifier.weight(1f),
                         ) {
@@ -387,15 +397,15 @@ fun NetworkEditorScreen(
 private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkConfig) -> Unit) {
     var showSecret by remember { mutableStateOf(false) }
 
-    SectionHeader("基本设置")
+    SectionHeader("基本设置", modifier = FormHorizontalPadding)
     OutlinedTextField(
         value = config.networkName,
         onValueChange = { v -> update { it.copy(networkName = v) } },
         label = { Text("网络名称") },
         singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
     )
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
     OutlinedTextField(
         value = config.networkSecret ?: "",
         onValueChange = { v -> update { it.copy(networkSecret = v.ifBlank { null }) } },
@@ -404,13 +414,18 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
         singleLine = true,
         visualTransformation = if (showSecret) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
-            TextButton(onClick = { showSecret = !showSecret }) {
-                Text(if (showSecret) "隐藏" else "显示")
+            // 更轻的显隐切换：IconButton 承载小号中性色文字，作为输入框附属操作而非独立按钮
+            IconButton(onClick = { showSecret = !showSecret }) {
+                Text(
+                    if (showSecret) "隐藏" else "显示",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
     )
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
 
     // DHCP
     SwitchRow(
@@ -422,12 +437,16 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
     if (config.dhcp && config.networkingMethod == NetworkingMethod.Standalone) {
         Text(
             "注意：独立网络无其他节点，DHCP 无法分配地址，请关闭并手动指定虚拟 IPv4。",
+            modifier = FormHorizontalPadding,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error,
         )
     }
     if (!config.dhcp) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().then(FormHorizontalPadding),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             OutlinedTextField(
                 value = config.virtualIpv4 ?: "",
                 onValueChange = { v -> update { it.copy(virtualIpv4 = v) } },
@@ -444,12 +463,12 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
                 modifier = Modifier.weight(1f),
             )
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
     }
 
     // 连接方式
-    SectionHeader("联网方式")
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+    SectionHeader("联网方式", modifier = FormHorizontalPadding)
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().then(FormHorizontalPadding)) {
         NetworkingMethod.entries.forEachIndexed { i, method ->
             SegmentedButton(
                 selected = config.networkingMethod == method,
@@ -468,22 +487,24 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
             label = { Text("公共服务器 URL") },
             placeholder = { Text("tcp://public.easytier.cn:11010") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
         )
         NetworkingMethod.Manual -> StringListEditor(
             label = "初始节点（Peer）",
             items = config.peerUrls,
             onChange = { list -> update { it.copy(peerUrls = list) } },
             placeholder = "tcp://203.0.113.10:11010",
+            modifier = FormHorizontalPadding,
         )
         NetworkingMethod.Standalone -> Text(
             "独立模式：不连接任何节点，等待其他节点主动连接本机。",
+            modifier = FormHorizontalPadding,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 
-    SectionHeader("运行选项")
+    SectionHeader("运行选项", modifier = FormHorizontalPadding)
     SwitchRow(
         title = "作为出口节点",
         subtitle = "允许其他节点将本机作为出口网关",
@@ -492,6 +513,7 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
     )
     Text(
         "SOCKS5 代理等应用层设置已移至「设置 → 应用层」。",
+        modifier = FormHorizontalPadding,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -503,7 +525,7 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
 private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkConfig) -> Unit) {
     var showAllFlags by remember { mutableStateOf(false) }
 
-    SectionHeader("功能开关")
+    SectionHeader("功能开关", modifier = FormHorizontalPadding)
     SwitchRow("延迟优先", config.latencyFirst ?: false) { v -> update { it.copy(latencyFirst = v) } }
     SwitchRow("使用 SmolTCP", config.useSmoltcp ?: false) { v -> update { it.copy(useSmoltcp = v) } }
     SwitchRow("禁用 IPv6", config.disableIpv6 ?: false) { v -> update { it.copy(disableIpv6 = v) } }
@@ -515,7 +537,7 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
     SwitchRow("多线程", config.multiThread ?: true) { v -> update { it.copy(multiThread = v) } }
 
     // 可见 9 项 + 隐藏 16 项（出口节点在「基本」页，避免重复字段）
-    TextButton(onClick = { showAllFlags = !showAllFlags }) {
+    TextButton(onClick = { showAllFlags = !showAllFlags }, modifier = FormHorizontalPadding) {
         Text(if (showAllFlags) "收起" else "显示全部 25 项")
     }
     if (showAllFlags) {
@@ -537,22 +559,23 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
         SwitchRow("禁用 KCP 监听", config.disableKcpInput ?: false) { v -> update { it.copy(disableKcpInput = v) } }
     }
 
-    SectionHeader("网络详情")
+    SectionHeader("网络详情", modifier = FormHorizontalPadding)
     OutlinedTextField(
         value = config.hostname ?: "",
         onValueChange = { v -> update { it.copy(hostname = v.ifBlank { null }) } },
         label = { Text("主机名") },
         singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
     )
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
     StringListEditor(
         label = "代理网段（CIDR）",
         items = config.proxyCidrs,
         onChange = { list -> update { it.copy(proxyCidrs = list) } },
         placeholder = "10.0.0.0/24",
+        modifier = FormHorizontalPadding,
     )
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
     IntField(
         value = config.mtu,
         onValueChange = { v -> update { it.copy(mtu = v) } },
@@ -560,25 +583,26 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
         range = 400..1380,
         supporting = "400 - 1380",
         allowEmpty = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
     )
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
     OutlinedTextField(
         value = config.devName ?: "",
         onValueChange = { v -> update { it.copy(devName = v.ifBlank { null }) } },
         label = { Text("设备名称") },
         singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
     )
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
     StringListEditor(
         label = "监听地址",
         items = config.listenerUrls,
         onChange = { list -> update { it.copy(listenerUrls = list) } },
         placeholder = "tcp://0.0.0.0:11010",
+        modifier = FormHorizontalPadding,
     )
 
-    SectionHeader("路由与限速")
+    SectionHeader("路由与限速", modifier = FormHorizontalPadding)
     SwitchRow("手动路由", config.enableManualRoutes ?: false) { v ->
         update { it.copy(enableManualRoutes = v) }
     }
@@ -588,6 +612,7 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
             items = config.routes ?: emptyList(),
             onChange = { list -> update { it.copy(routes = list) } },
             placeholder = "10.147.0.0/16",
+            modifier = FormHorizontalPadding,
         )
     }
     SwitchRow("中继网络白名单", config.enableRelayNetworkWhitelist ?: false) { v ->
@@ -599,6 +624,7 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
             items = config.relayNetworkWhitelist ?: emptyList(),
             onChange = { list -> update { it.copy(relayNetworkWhitelist = list) } },
             placeholder = "172.16.0.0/12",
+            modifier = FormHorizontalPadding,
         )
     }
     LongField(
@@ -606,14 +632,15 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
         onValueChange = { v -> update { it.copy(instanceRecvBpsLimit = v) } },
         label = "接收带宽限制（bit/s）",
         allowEmpty = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
     )
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
     StringListEditor(
         label = "出口节点列表",
         items = config.exitNodes ?: emptyList(),
         onChange = { list -> update { it.copy(exitNodes = list) } },
         placeholder = "10.126.126.1",
+        modifier = FormHorizontalPadding,
     )
 }
 
@@ -621,9 +648,10 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
 
 @Composable
 private fun PortForwardTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkConfig) -> Unit) {
-    SectionHeader("端口转发")
+    SectionHeader("端口转发", modifier = FormHorizontalPadding)
     Text(
         "将本机端口的流量转发到虚拟网络中的其他节点。",
+        modifier = FormHorizontalPadding,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -632,6 +660,7 @@ private fun PortForwardTab(config: NetworkConfig, update: ((NetworkConfig) -> Ne
     config.portForwards.forEachIndexed { index, pf ->
         PortForwardEditor(
             pf = pf,
+            modifier = FormHorizontalPadding,
             onChange = { newPf ->
                 update { c ->
                     c.copy(portForwards = c.portForwards.toMutableList().apply { set(index, newPf) })
@@ -646,9 +675,12 @@ private fun PortForwardTab(config: NetworkConfig, update: ((NetworkConfig) -> Ne
         Spacer(Modifier.height(12.dp))
     }
 
-    TextButton(onClick = {
-        update { it.copy(portForwards = it.portForwards + PortForwardEntry()) }
-    }) {
+    TextButton(
+        onClick = {
+            update { it.copy(portForwards = it.portForwards + PortForwardEntry()) }
+        },
+        modifier = FormHorizontalPadding,
+    ) {
         Icon(Icons.Filled.Add, null, Modifier.size(18.dp))
         Text("添加规则", Modifier.padding(start = 6.dp))
     }
@@ -657,11 +689,13 @@ private fun PortForwardTab(config: NetworkConfig, update: ((NetworkConfig) -> Ne
 @Composable
 private fun PortForwardEditor(
     pf: PortForwardEntry,
+    modifier: Modifier = Modifier,
     onChange: (PortForwardEntry) -> Unit,
     onDelete: () -> Unit,
 ) {
-    androidx.compose.material3.Card {
-        Column(Modifier.padding(12.dp)) {
+    // 统一卡片语言：扁平 AppCard（细描边 + surfaceContainerLowest），内边距 16dp
+    AppCard(modifier = modifier) {
+        Column(Modifier.padding(16.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -671,13 +705,15 @@ private fun PortForwardEditor(
                     "${pf.proto.uppercase()} ${pf.bindIp}:${pf.bindPort}",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Medium,
+                    // IP/端口等技术数值一律等宽字体
+                    fontFamily = FontFamily.Monospace,
                 )
-                IconButton(onClick = onDelete) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
                     Icon(Icons.Filled.Delete, "删除", tint = MaterialTheme.colorScheme.error)
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = pf.bindIp,
                     onValueChange = { v -> onChange(pf.copy(bindIp = v)) },
@@ -694,8 +730,8 @@ private fun PortForwardEditor(
                     modifier = Modifier.weight(1f),
                 )
             }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = pf.dstIp,
                     onValueChange = { v -> onChange(pf.copy(dstIp = v)) },
@@ -712,7 +748,7 @@ private fun PortForwardEditor(
                     modifier = Modifier.weight(1f),
                 )
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 listOf("tcp", "udp").forEachIndexed { i, proto ->
                     SegmentedButton(

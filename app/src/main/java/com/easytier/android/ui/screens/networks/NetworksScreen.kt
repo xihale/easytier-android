@@ -1,6 +1,9 @@
 package com.easytier.android.ui.screens.networks
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,13 +18,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -43,16 +48,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -163,9 +170,18 @@ fun NetworksScreen(
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 108.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // 品牌页头：应用名大字，紧跟 Hero 卡
+            item(key = "brand") {
+                Text(
+                    "EasyTier",
+                    style = MaterialTheme.typography.headlineSmall.copy(letterSpacing = 0.2.sp),
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                )
+            }
             item(key = "hero") {
                 ServiceHeroCard(
                     running = serviceRunning,
@@ -180,10 +196,11 @@ fun NetworksScreen(
                             runningInfos[0].second.myNodeInfo?.virtualIpv4?.toIpString()
                         else -> "${runningInfos.size} 个网络运行中"
                     },
+                    // 箭头方向由 Hero 卡内图标表达，字符串不再带 ↑/↓ 前缀避免双重箭头
                     stats = if (!serviceRunning || runningInfos.isEmpty()) emptyList() else buildList {
                         add("$nodeCount 个节点")
-                        add("↑ ${Format.bytes(txTotal)}")
-                        add("↓ ${Format.bytes(rxTotal)}")
+                        add(Format.bytes(txTotal))
+                        add(Format.bytes(rxTotal))
                     },
                     onToggle = { on ->
                         if (on) {
@@ -206,21 +223,20 @@ fun NetworksScreen(
             }
             if (networks.isEmpty()) {
                 item(key = "empty") {
-                    AppCard {
-                        Column(
-                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            EmptyState(
-                                icon = AppIcons.CloudOff,
-                                title = "还没有网络",
-                                hint = "点击右下角「新建网络」创建你的第一个组网\n或从 TOML 配置文件导入",
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            TextButton(onClick = { showImportDialog = true }) {
-                                Icon(AppIcons.Upload, null, Modifier.size(18.dp))
-                                Text("导入 TOML 配置", Modifier.padding(start = 6.dp))
-                            }
+                    // 空状态直接裸排在页面上（不再包 AppCard），视觉更轻盈
+                    Column(
+                        Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        EmptyState(
+                            icon = AppIcons.CloudOff,
+                            title = "还没有网络",
+                            hint = "点击右下角「新建网络」创建你的第一个组网\n或从 TOML 配置文件导入",
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        TextButton(onClick = { showImportDialog = true }) {
+                            Icon(AppIcons.Upload, null, Modifier.size(18.dp))
+                            Text("导入 TOML 配置", Modifier.padding(start = 6.dp))
                         }
                     }
                 }
@@ -260,6 +276,7 @@ fun NetworksScreen(
             onClick = onCreateNetwork,
             icon = { Icon(Icons.Filled.Add, null) },
             text = { Text("新建网络") },
+            shape = RoundedCornerShape(16.dp),
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
         )
 
@@ -287,7 +304,7 @@ fun NetworksScreen(
 }
 
 /**
- * 网络卡片：Checkbox 勾选（服务启动时加入）+ 状态色图标 + 名称。
+ * 网络卡片：自绘 RoundCheckbox 勾选（服务启动时加入）+ 状态色图标 + 名称。
  * 右滑露出编辑 icon 并进入编辑页；左滑露出删除 icon 并删除。
  */
 @Composable
@@ -349,7 +366,7 @@ private fun NetworkCard(
                         Modifier
                             .weight(1f)
                             .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(16.dp)),
+                            .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.large),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -363,7 +380,7 @@ private fun NetworkCard(
                         Modifier
                             .weight(1f)
                             .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(16.dp)),
+                            .background(MaterialTheme.colorScheme.errorContainer, MaterialTheme.shapes.large),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -383,7 +400,7 @@ private fun NetworkCard(
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Checkbox(
+                    RoundCheckbox(
                         checked = network.enabled,
                         onCheckedChange = onToggleEnabled,
                     )
@@ -393,9 +410,9 @@ private fun NetworkCard(
                         tint = accent,
                         modifier = Modifier
                             .padding(start = 4.dp)
-                            .size(40.dp)
-                            .background(accent.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
-                            .padding(10.dp),
+                            .size(42.dp)
+                            .background(accent.copy(alpha = 0.10f), RoundedCornerShape(13.dp))
+                            .padding(11.dp),
                     )
                     Column(Modifier.weight(1f).padding(start = 14.dp)) {
                         Text(
@@ -414,17 +431,64 @@ private fun NetworkCard(
                             modifier = Modifier.padding(top = 2.dp),
                         )
                     }
-                    // 右缘滑动提示：双向箭头
-                    Icon(
-                        AppIcons.ExpandMore,
-                        null,
-                        tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                        modifier = Modifier
-                            .padding(end = 4.dp)
-                            .size(18.dp)
-                            .rotate(-90f),
-                    )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 自绘圆形勾选框（替代 M3 Checkbox）：22dp 圆。
+ * 未选：2dp outline 描边透明底；选中：primary 实心 + 白色 14dp 对勾，颜色 150ms 过渡。
+ * 外层保留最小交互尺寸与 Checkbox 语义角色，触控热区与 TalkBack 行为不变。
+ */
+@Composable
+private fun RoundCheckbox(
+    checked: Boolean,
+    onCheckedChange: ((Boolean) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val fillColor by animateColorAsState(
+        targetValue = if (checked) MaterialTheme.colorScheme.primary else Color.Transparent,
+        animationSpec = tween(durationMillis = 150),
+        label = "roundCheckboxFill",
+    )
+    val strokeColor by animateColorAsState(
+        targetValue = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        animationSpec = tween(durationMillis = 150),
+        label = "roundCheckboxStroke",
+    )
+    // 新版 foundation 已移除 minimumInteractiveComponentSize：显式 48dp 触控热区（与原 M3 Checkbox 一致）
+    Box(
+        modifier
+            .size(48.dp)
+            .then(
+                if (onCheckedChange != null) {
+                    Modifier.toggleable(
+                        value = checked,
+                        role = Role.Checkbox,
+                        onValueChange = onCheckedChange,
+                    )
+                } else {
+                    Modifier
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(22.dp)
+                .background(fillColor, CircleShape)
+                .border(2.dp, strokeColor, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (checked) {
+                Icon(
+                    Icons.Filled.Check,
+                    null,
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp),
+                )
             }
         }
     }

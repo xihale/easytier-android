@@ -1,18 +1,19 @@
 package com.easytier.android.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /** 扩展状态色（MD3 未定义的 success/warning）。 */
@@ -38,10 +39,18 @@ private val DesignTypography = Typography(
     bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, letterSpacing = 0.5.sp),
     bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.25.sp),
     bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.4.sp),
-    labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.1.sp),
+    labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.2.sp),
     labelMedium = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp),
     // 低于 12sp 可读性下限，labelSmall 由 11sp 提到 12sp
     labelSmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp),
+)
+
+/** 统一圆角体系：Hero 28dp、卡片 20dp、小容器 16/12dp。 */
+private val DesignShapes = Shapes(
+    extraLarge = RoundedCornerShape(28.dp),
+    large = RoundedCornerShape(20.dp),
+    medium = RoundedCornerShape(16.dp),
+    small = RoundedCornerShape(12.dp),
 )
 
 private val LightColors: ColorScheme = lightColorScheme(
@@ -142,6 +151,7 @@ fun EasyTierTheme(
         MaterialTheme(
             colorScheme = colorScheme,
             typography = DesignTypography,
+            shapes = DesignShapes,
             content = content,
         )
     }

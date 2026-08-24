@@ -45,6 +45,7 @@ import com.easytier.android.EasyTierApp
 import com.easytier.android.core.vpn.BootCompletedReceiver
 import com.easytier.android.data.store.AppSettings
 import com.easytier.android.data.store.SettingsRepository
+import com.easytier.android.ui.components.AppCard
 import com.easytier.android.ui.components.ChoiceRow
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.SettingRow
@@ -130,89 +131,103 @@ fun SettingsScreen() {
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .padding(start = 16.dp, end = 16.dp, top = 4.dp),
         ) {
-        Column(
-            Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
+            // 「应用层」分组卡片：SettingRow 行内已带 horizontal 16dp，
+            // 卡内 Column 只补 vertical 4dp，避免双倍横向缩进
             SectionHeader("应用层")
-            SwitchRow(
-                title = "启动 VPN",
-                subtitle = "关闭后不创建系统 VPN（TUN），仅运行引擎，可通过 SOCKS5 代理访问虚拟网络",
-                icon = AppIcons.Shield,
-                checked = s.enableVpn,
-                onCheckedChange = { vm.setVpnEnabled(it) },
-            )
-            SwitchRow(
-                title = "SOCKS5 代理",
-                subtitle = "在本机开启 SOCKS5 服务，作为访问虚拟网络的入口",
-                icon = AppIcons.Language,
-                checked = s.enableSocks5,
-                onCheckedChange = { vm.setSocks5(it, s.socks5Port) },
-            )
-            if (s.enableSocks5) {
-                SettingRow(
-                    title = "SOCKS5 端口",
-                    subtitle = "重启网络后生效",
-                    icon = AppIcons.Terminal,
-                    onClick = { showSocks5Dialog = true },
-                    trailing = {
-                        Text(
-                            s.socks5Port.toString(),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    },
-                )
-            }
-            SwitchRow(
-                title = "开机自启",
-                subtitle = "设备开机后自动启动服务，拉起全部勾选的网络",
-                icon = AppIcons.Terminal,
-                checked = s.autoStartOnBoot,
-                divider = false,
-                onCheckedChange = { vm.setAutoStart(context, it) },
-            )
-
-            Spacer(Modifier.height(12.dp))
-            SectionHeader("外观")
-            ChoiceRow(
-                title = "主题",
-                value = THEME_OPTIONS.firstOrNull { it.first == s.themeMode }?.second ?: s.themeMode,
-                icon = AppIcons.DarkMode,
-                onClick = { showThemeDialog = true },
-            )
-
-            Spacer(Modifier.height(12.dp))
-            SectionHeader("关于")
-            SettingRow(
-                title = "版本",
-                subtitle = com.easytier.android.BuildConfig.VERSION_NAME,
-                icon = Icons.Filled.Info,
-            )
-            SettingRow(
-                title = "VPN 权限",
-                subtitle = "检查 / 授予 Always-On VPN 权限",
-                icon = AppIcons.Shield,
-                onClick = requestVpnPermission,
-            )
-            SettingRow(
-                title = "项目主页",
-                subtitle = "GitHub：EasyTier 核心（Rust）与开源组件",
-                icon = Icons.Filled.Info,
-                divider = false,
-                onClick = {
-                    context.startActivity(
-                        Intent(
-                            Intent.ACTION_VIEW,
-                            android.net.Uri.parse("https://github.com/EasyTier/EasyTier"),
-                        ),
+            AppCard {
+                Column(Modifier.padding(vertical = 4.dp)) {
+                    SwitchRow(
+                        title = "启动 VPN",
+                        subtitle = "关闭后不创建系统 VPN（TUN），仅运行引擎，可通过 SOCKS5 代理访问虚拟网络",
+                        icon = AppIcons.Shield,
+                        checked = s.enableVpn,
+                        onCheckedChange = { vm.setVpnEnabled(it) },
                     )
-                },
-            )
+                    SwitchRow(
+                        title = "SOCKS5 代理",
+                        subtitle = "在本机开启 SOCKS5 服务，作为访问虚拟网络的入口",
+                        icon = AppIcons.Language,
+                        checked = s.enableSocks5,
+                        onCheckedChange = { vm.setSocks5(it, s.socks5Port) },
+                    )
+                    if (s.enableSocks5) {
+                        SettingRow(
+                            title = "SOCKS5 端口",
+                            subtitle = "重启网络后生效",
+                            icon = AppIcons.Terminal,
+                            onClick = { showSocks5Dialog = true },
+                            trailing = {
+                                Text(
+                                    s.socks5Port.toString(),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                        )
+                    }
+                    // 组内最后一行去掉 divider
+                    SwitchRow(
+                        title = "开机自启",
+                        subtitle = "设备开机后自动启动服务，拉起全部勾选的网络",
+                        icon = AppIcons.Terminal,
+                        checked = s.autoStartOnBoot,
+                        divider = false,
+                        onCheckedChange = { vm.setAutoStart(context, it) },
+                    )
+                }
+            }
+
+            // 「外观」分组卡片：组间距由 SectionHeader 自带 top 20dp 提供，不再手动 Spacer
+            SectionHeader("外观")
+            AppCard {
+                Column(Modifier.padding(vertical = 4.dp)) {
+                    ChoiceRow(
+                        title = "主题",
+                        value = THEME_OPTIONS.firstOrNull { it.first == s.themeMode }?.second ?: s.themeMode,
+                        icon = AppIcons.DarkMode,
+                        divider = false,
+                        onClick = { showThemeDialog = true },
+                    )
+                }
+            }
+
+            // 「关于」分组卡片：图标去重 Info / Shield / Language
+            SectionHeader("关于")
+            AppCard {
+                Column(Modifier.padding(vertical = 4.dp)) {
+                    SettingRow(
+                        title = "版本",
+                        subtitle = com.easytier.android.BuildConfig.VERSION_NAME,
+                        icon = Icons.Filled.Info,
+                    )
+                    SettingRow(
+                        title = "VPN 权限",
+                        subtitle = "检查 / 授予 Always-On VPN 权限",
+                        icon = AppIcons.Shield,
+                        onClick = requestVpnPermission,
+                    )
+                    // 组内最后一行去掉 divider；图标改用 Language 避免与「版本」重复
+                    SettingRow(
+                        title = "项目主页",
+                        subtitle = "GitHub：EasyTier 核心（Rust）与开源组件",
+                        icon = AppIcons.Language,
+                        divider = false,
+                        onClick = {
+                            context.startActivity(
+                                Intent(
+                                    Intent.ACTION_VIEW,
+                                    android.net.Uri.parse("https://github.com/EasyTier/EasyTier"),
+                                ),
+                            )
+                        },
+                    )
+                }
+            }
+
             Spacer(Modifier.height(32.dp))
-        }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
