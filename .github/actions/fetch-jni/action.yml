@@ -1,0 +1,32 @@
+name: Fetch prebuilt EasyTier JNI
+description: 从本仓库最新 jni-* Release 下载预编译的 libeasytier_android_jni-<abi>.so 到 app/src/main/jniLibs
+runs:
+  using: composite
+  steps:
+    - name: Download prebuilt JNI libs
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        TAG=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+          "https://api.github.com/repos/$REPO/releases?per_page=100" |
+          jq -r '[.[].tag_name | select(startswith("jni-"))][0] // empty')
+        if [ -z "$TAG" ]; then
+          echo "::error::未找到 jni-* 前缀的 Release。请先按 README「JNI 库版本管理」本地构建并上传 .so"
+          exit 1
+        fi
+        echo "使用 JNI 预编译产物: $TAG"
+        curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+          "https://api.github.com/repos/$REPO/releases/tags/$TAG" |
+          jq -r '.assets[] | select(.name | test("^libeasytier_android_jni-.+\\.so$")) | [.name, .browser_download_url] | @tsv' |
+        while IFS=$'\t' read -r name url; do
+          abi=${name#libeasytier_android_jni-}
+          abi=${abi%.so}
+          mkdir -p "app/src/main/jniLibs/$abi"
+          curl -sfL -H "Authorization: Bearer $GH_TOKEN" \
+            -o "app/src/main/jniLibs/$abi/libeasytier_android_jni.so" "$url"
+          echo "已下载 $name -> app/src/main/jniLibs/$abi/"
+        done
+        ls -la app/src/main/jniLibs/*/

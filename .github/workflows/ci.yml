@@ -21,7 +21,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build EasyTier JNI .so from upstream source
-        uses: ./.github/actions/build-jni
+        uses: ./.github/actions/fetch-jni
 
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest

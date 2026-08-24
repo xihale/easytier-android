@@ -12,12 +12,11 @@ EasyTier 核心引擎（`libeasytier_android_jni.so`），不依赖 Tauri / WebV
 
 ## 构建
 
-要求 JDK 17+ 与 Android SDK（API 36）。仓库不含预编译的 `libeasytier_android_jni.so`，构建前需先行获取：
+要求 JDK 17+ 与 Android SDK（API 36）。仓库不含 `libeasytier_android_jni.so`：
 
-- **方式一**：本地克隆 [EasyTier/EasyTier](https://github.com/EasyTier/EasyTier)，在
-  `easytier-contrib/easytier-android-jni` 下按其 README 用 `build.sh`（cargo-ndk）构建，
-  把生成的 `libeasytier_android_jni.so` 放到 `app/src/main/jniLibs/arm64-v8a/`
-- **方式二**：直接用本仓库的 CI / Release workflow，会自动从上游源码现场构建
+- **CI / Release workflow**：自动从本仓库最新的 `jni-*` Release 下载预编译 `.so`，无需本地准备
+- **本地构建**：先按下面「JNI 库版本管理」上传一次，或手动把 `.so` 放到
+  `app/src/main/jniLibs/arm64-v8a/`（该目录不入库）
 
 ```bash
 ./gradlew :app:assembleDebug    # 调试包
@@ -26,6 +25,25 @@ EasyTier 核心引擎（`libeasytier_android_jni.so`），不依赖 Tauri / WebV
 ```
 
 仅包含 `arm64-v8a`。
+
+## JNI 库版本管理
+
+`.so` 在本地从 [EasyTier/EasyTier](https://github.com/EasyTier/EasyTier) 的
+`easytier-contrib/easytier-android-jni` 构建后上传到本仓库的 Release（tag 以 `jni-` 开头，
+不会触发 APK 发布），CI 取其中最新的一份：
+
+```bash
+# 1. 构建（在上游 EasyTier 克隆内）
+cd easytier-contrib/easytier-android-jni && ../build.sh
+
+# 2. 按约定命名资产并上传（版本号建议标注上游核心版本或提交）
+SO=target/android/arm64-v8a/libeasytier_android_jni.so
+cp "$SO" /tmp/libeasytier_android_jni-arm64-v8a.so
+gh release create jni-<版本> --repo xihale/easytier-android-native \
+  --title "JNI <版本>" --notes "EasyTier 核心 <版本/commit>，arm64-v8a"
+gh release upload jni-<版本> /tmp/libeasytier_android_jni-arm64-v8a.so \
+  --repo xihale/easytier-android-native --clobber
+```
 
 ## 发布签名
 
@@ -43,4 +61,5 @@ CI 在 tag（`v*`）推送时自动构建并发布 Release APK。签名通过仓
 ## 致谢
 
 - [EasyTier](https://github.com/EasyTier/EasyTier)：去中心化组网核心，遵循 LGPL-3.0。
-  本应用通过其 `easytier-contrib/easytier-android-jni` 提供的 JNI 绑定调用引擎（构建时从上游源码编译）。
+  本应用通过其 `easytier-contrib/easytier-android-jni` 提供的 JNI 绑定调用引擎
+  （预编译 `.so` 经本仓库 `jni-*` Release 分发）。
