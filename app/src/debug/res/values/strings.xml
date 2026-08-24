@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- debug 变体资源覆盖：与 release 版在桌面上可区分 -->
+<resources>
+    <string name="app_name">EasyTier Debug</string>
+    <string name="tile_label">EasyTier Debug</string>
+</resources>

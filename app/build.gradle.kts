@@ -53,6 +53,8 @@ android {
             )
         }
         debug {
+            // 与 release 版（com.easytier.android.native）区分，可并排安装
+            applicationIdSuffix = ".debug"
             isJniDebuggable = true
             packaging {
                 jniLibs.keepDebugSymbols += "**/libeasytier*.so"
