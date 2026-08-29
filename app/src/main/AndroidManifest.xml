@@ -71,5 +71,10 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- 桌面图标深浅色刷新触发组件（无逻辑，见 LauncherIconRefresher） -->
+        <receiver
+            android:name=".LauncherIconRefresher"
+            android:exported="false" />
     </application>
 </manifest>

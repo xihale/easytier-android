@@ -8,33 +8,26 @@
     <path
         android:fillColor="#FAFAFC"
         android:pathData="M200,0 L824,0 A200,200 0 0,1 1024,200 L1024,824 A200,200 0 0,1 824,1024 L200,1024 A200,200 0 0,1 0,824 L0,200 A200,200 0 0,1 200,0 Z" />
-    <!-- 与自适应前景保持同一缩放比例 -->
-    <group
-        android:pivotX="512"
-        android:pivotY="512"
-        android:scaleX="1.1"
-        android:scaleY="1.1">
-        <!-- 中心圆点（淡紫色） -->
-        <path
-            android:fillColor="#BB86FC"
-            android:pathData="M512,512m-100,0a100,100 0,1 1,200 0a100,100 0,1 1,-200 0" />
-        <!-- 外围弧线 1（青绿色） -->
-        <path
-            android:strokeColor="#03DAC6"
-            android:strokeWidth="80"
-            android:strokeLineCap="round"
-            android:pathData="M512,280 A232,232 0 0,1 713,396" />
-        <!-- 外围弧线 2（青绿色） -->
-        <path
-            android:strokeColor="#03DAC6"
-            android:strokeWidth="80"
-            android:strokeLineCap="round"
-            android:pathData="M311,628 A232,232 0 0,1 311,396" />
-        <!-- 外围弧线 3（青绿色） -->
-        <path
-            android:strokeColor="#03DAC6"
-            android:strokeWidth="80"
-            android:strokeLineCap="round"
-            android:pathData="M713,628 A232,232 0 0,1 512,744" />
-    </group>
+    <!-- 中心圆点（淡紫色） -->
+    <path
+        android:fillColor="#BB86FC"
+        android:pathData="M512,512m-100,0a100,100 0,1 1,200 0a100,100 0,1 1,-200 0" />
+    <!-- 外围弧线 1（青绿色） -->
+    <path
+        android:strokeColor="#03DAC6"
+        android:strokeWidth="80"
+        android:strokeLineCap="round"
+        android:pathData="M512,280 A232,232 0 0,1 713,396" />
+    <!-- 外围弧线 2（青绿色） -->
+    <path
+        android:strokeColor="#03DAC6"
+        android:strokeWidth="80"
+        android:strokeLineCap="round"
+        android:pathData="M311,628 A232,232 0 0,1 311,396" />
+    <!-- 外围弧线 3（青绿色） -->
+    <path
+        android:strokeColor="#03DAC6"
+        android:strokeWidth="80"
+        android:strokeLineCap="round"
+        android:pathData="M713,628 A232,232 0 0,1 512,744" />
 </vector>

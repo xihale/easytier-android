@@ -1,6 +1,7 @@
 package com.easytier.android
 
 import android.app.Application
+import android.content.res.Configuration
 import com.easytier.android.core.engine.EasyTierEngine
 import com.easytier.android.core.vpn.VpnController
 import com.easytier.android.data.store.NetworksRepository
@@ -46,5 +47,13 @@ class EasyTierApp : Application() {
         appInstance = this
         // 应用冷启动时，按频率执行一次静默的自动检测更新（失败不上报）
         applicationScope.launch { container.updateChecker.maybeAutoCheck() }
+        // 兜底：进程不在时系统切了深浅色，下次进程拉起（打开应用/服务/开机）时同步桌面图标
+        LauncherIconRefresher.syncIfNeeded(this)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 进程存活时系统切换深浅色（VPN 常驻即实时跟随），促使桌面按新配置重渲染图标
+        LauncherIconRefresher.syncIfNeeded(this)
     }
 }
