@@ -6,28 +6,35 @@
     android:viewportHeight="1024">
     <!-- 圆形背景 -->
     <path
-        android:fillColor="#131313"
+        android:fillColor="#FAFAFC"
         android:pathData="M512,512m-512,0a512,512 0,1 1,1024 0a512,512 0,1 1,-1024 0" />
-    <!-- 中心圆点（淡紫色） -->
-    <path
-        android:fillColor="#BB86FC"
-        android:pathData="M512,512m-100,0a100,100 0,1 1,200 0a100,100 0,1 1,-200 0" />
-    <!-- 外围弧线 1（青绿色） -->
-    <path
-        android:strokeColor="#03DAC6"
-        android:strokeWidth="80"
-        android:strokeLineCap="round"
-        android:pathData="M512,280 A232,232 0 0,1 713,396" />
-    <!-- 外围弧线 2（青绿色） -->
-    <path
-        android:strokeColor="#03DAC6"
-        android:strokeWidth="80"
-        android:strokeLineCap="round"
-        android:pathData="M311,628 A232,232 0 0,1 311,396" />
-    <!-- 外围弧线 3（青绿色） -->
-    <path
-        android:strokeColor="#03DAC6"
-        android:strokeWidth="80"
-        android:strokeLineCap="round"
-        android:pathData="M713,628 A232,232 0 0,1 512,744" />
+    <!-- 与自适应前景保持同一缩放比例 -->
+    <group
+        android:pivotX="512"
+        android:pivotY="512"
+        android:scaleX="1.1"
+        android:scaleY="1.1">
+        <!-- 中心圆点（淡紫色） -->
+        <path
+            android:fillColor="#BB86FC"
+            android:pathData="M512,512m-100,0a100,100 0,1 1,200 0a100,100 0,1 1,-200 0" />
+        <!-- 外围弧线 1（青绿色） -->
+        <path
+            android:strokeColor="#03DAC6"
+            android:strokeWidth="80"
+            android:strokeLineCap="round"
+            android:pathData="M512,280 A232,232 0 0,1 713,396" />
+        <!-- 外围弧线 2（青绿色） -->
+        <path
+            android:strokeColor="#03DAC6"
+            android:strokeWidth="80"
+            android:strokeLineCap="round"
+            android:pathData="M311,628 A232,232 0 0,1 311,396" />
+        <!-- 外围弧线 3（青绿色） -->
+        <path
+            android:strokeColor="#03DAC6"
+            android:strokeWidth="80"
+            android:strokeLineCap="round"
+            android:pathData="M713,628 A232,232 0 0,1 512,744" />
+    </group>
 </vector>
