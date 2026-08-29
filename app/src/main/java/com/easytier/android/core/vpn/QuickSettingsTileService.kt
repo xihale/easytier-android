@@ -1,5 +1,6 @@
 package com.easytier.android.core.vpn
 
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.service.quicksettings.Tile
@@ -7,6 +8,7 @@ import android.service.quicksettings.TileService
 import android.widget.Toast
 import android.util.Log
 import com.easytier.android.EasyTierApp
+import com.easytier.android.MainActivity
 import com.easytier.android.R
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
@@ -63,9 +65,30 @@ class QuickSettingsTileService : TileService() {
                     Toast.makeText(applicationContext, R.string.tile_no_network, Toast.LENGTH_SHORT).show()
                 }
                 update(false, hasEnabledNetworks = false)
+                return@launch
+            }
+            // VPN 被其他应用抢占或授权被回收后 establish 会静默失败，而磁贴弹不了系统授权框：
+            // 转交 MainActivity 申请授权、通过后自动启动服务（仅引擎模式无需授权）
+            val vpnEnabled = app.container.settingsRepository.settings.first().enableVpn
+            if (vpnEnabled && controller.needsPermission() != null) {
+                requestPermissionInApp()
             } else {
                 controller.startService(enabled)
             }
+        }
+    }
+
+    /** 拉起应用申请系统 VPN 授权，通过后由应用自动继续启动服务。 */
+    private fun requestPermissionInApp() {
+        runCatching {
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .putExtra(MainActivity.EXTRA_REQUEST_VPN_AND_START, true),
+            )
+        }.onFailure { Log.e(TAG, "拉起应用申请 VPN 授权失败", it) }
+        mainHandler.post {
+            Toast.makeText(applicationContext, R.string.tile_need_vpn_permission, Toast.LENGTH_LONG).show()
         }
     }
 

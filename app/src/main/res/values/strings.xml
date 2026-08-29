@@ -4,4 +4,5 @@
     <!-- 下拉快捷设置磁贴 -->
     <string name="tile_label">EasyTier</string>
     <string name="tile_no_network">没有勾选的网络，请先在应用中勾选</string>
+    <string name="tile_need_vpn_permission">VPN 未授权，请在弹出的页面授权后自动连接</string>
 </resources>

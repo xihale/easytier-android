@@ -1,9 +1,6 @@
 package com.easytier.android.ui.screens.settings
 
 import android.content.Intent
-import android.net.VpnService
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
@@ -153,26 +150,6 @@ fun SettingsScreen() {
     // 检查按钮的即时状态（用于显示检查中菊叶与发现新版本是否该弹窗）
     val checkState by vm.updateCheckResult.collectAsState()
 
-    // VPN 权限申请：未授权时弹系统授权框；已授权也提示用户当前状态
-    val vpnPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        scope.launch {
-            snackbar.showSnackbar(
-                if (result.resultCode == android.app.Activity.RESULT_OK) "VPN 权限已授予"
-                else "未授予 VPN 权限",
-            )
-        }
-    }
-    val requestVpnPermission: () -> Unit = {
-        val intent = VpnService.prepare(context)
-        if (intent != null) {
-            vpnPermissionLauncher.launch(intent)
-        } else {
-            scope.launch { snackbar.showSnackbar("VPN 权限已授予") }
-        }
-    }
-
     val s = settings ?: run {
         // 首帧设置未加载时给加载指示，避免整页空白
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -274,7 +251,7 @@ fun SettingsScreen() {
                             Image(
                                 painter = painterResource(R.drawable.ic_launcher_foreground),
                                 contentDescription = "EasyTier Logo",
-                                modifier = Modifier.size(90.dp),
+                                modifier = Modifier.size(100.dp),
                             )
                         }
                         Spacer(Modifier.height(12.dp))
@@ -355,12 +332,6 @@ fun SettingsScreen() {
                                 .firstOrNull { it.first == s.updateCheckInterval }?.second ?: "关闭",
                             icon = AppIcons.Schedule,
                             onClick = { showUpdateIntervalDialog = true },
-                        )
-                        SettingRow(
-                            title = "VPN 权限",
-                            icon = AppIcons.Shield,
-                            onClick = requestVpnPermission,
-                            trailing = { Chevron() },
                         )
                         SettingRow(
                             title = "项目主页",

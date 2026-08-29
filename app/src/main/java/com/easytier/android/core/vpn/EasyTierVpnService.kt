@@ -11,6 +11,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import com.easytier.android.EasyTierApp
 import com.easytier.android.MainActivity
@@ -50,6 +51,7 @@ class EasyTierVpnService : VpnService() {
         when (intent?.action) {
             ACTION_STOP -> {
                 // 通知栏停止：停 TUN + 停全部网络实例（服务与网络一起关）
+                startForeground(NOTIFICATION_ID, buildNotification("正在停止"))
                 stopVpn()
                 stopAllExternally()
                 stopSelf()
@@ -57,6 +59,7 @@ class EasyTierVpnService : VpnService() {
             }
             ACTION_STOP_TUN -> {
                 // 仅关 TUN 与前台服务，不动核心实例（服务/网络解耦）
+                startForeground(NOTIFICATION_ID, buildNotification("正在停止"))
                 stopVpn()
                 stopSelf()
                 return START_NOT_STICKY
@@ -69,6 +72,8 @@ class EasyTierVpnService : VpnService() {
 
         if (instanceName == null || ipv4 == null) {
             Log.e(TAG, "缺少必要参数，停止服务")
+            // START_STICKY 重建时 intent 为 null：补一次 startForeground 满足前台服务回调义务
+            startForeground(NOTIFICATION_ID, buildNotification("启动中"))
             stopSelf()
             return START_NOT_STICKY
         }
@@ -79,7 +84,7 @@ class EasyTierVpnService : VpnService() {
 
         scope.launch {
             runCatching { setupVpn(ipv4, cidrs) }
-                .onFailure { Log.e(TAG, "VPN 建立失败", it); stopSelf() }
+                .onFailure { Log.e(TAG, "VPN 建立失败", it); onEstablishFailed(it) }
         }
         return START_STICKY
     }
@@ -194,9 +199,21 @@ class EasyTierVpnService : VpnService() {
 
     override fun onRevoke() {
         stopVpn()
-        // 服务与网络解耦：VPN 被抢占只重置服务开关，核心实例继续运行
-        runCatching { EasyTierApp.get().container.vpnController.onTunRevoked() }
+        // 服务与网络解耦：VPN 被抢占只重置服务状态，核心实例继续运行
+        runCatching { EasyTierApp.get().container.vpnController.onTunDown() }
             .onFailure { Log.w(TAG, "重置服务状态失败", it) }
+        stopSelf()
+    }
+
+    /**
+     * TUN 建立失败（VPN 授权被收回 / 被其他 VPN 占用等）。此前只记日志就停止服务，
+     * 用户侧表现为「网络连上了但 VPN 没起来」且磁贴仍是绿色。这里重置服务状态
+     * （磁贴/首页回到未运行，下次开启即重试），并发一条可点击授权重试的通知。
+     */
+    private fun onEstablishFailed(cause: Throwable) {
+        runCatching { EasyTierApp.get().container.vpnController.onTunDown() }
+            .onFailure { Log.w(TAG, "重置服务状态失败", it) }
+        postFailureNotification(cause)
         stopSelf()
     }
 
@@ -245,10 +262,52 @@ class EasyTierVpnService : VpnService() {
             .build()
     }
 
+    /** 失败通知：点按打开应用申请授权并自动重试。无通知权限时静默放弃。 */
+    private fun postFailureNotification(cause: Throwable) {
+        runCatching {
+            val manager = getSystemService(NotificationManager::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                manager.getNotificationChannel(CHANNEL_ALERT_ID) == null
+            ) {
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        CHANNEL_ALERT_ID, "连接异常",
+                        NotificationManager.IMPORTANCE_DEFAULT,
+                    ).apply { description = "VPN 建立失败等需要处理的异常" },
+                )
+            }
+            val retryIntent = PendingIntent.getActivity(
+                this, 2,
+                Intent(this, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .putExtra(MainActivity.EXTRA_REQUEST_VPN_AND_START, true),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            manager.notify(
+                ALERT_NOTIFICATION_ID,
+                NotificationCompat.Builder(this, CHANNEL_ALERT_ID)
+                    .setSmallIcon(R.drawable.ic_stat_vpn)
+                    .setContentTitle("EasyTier VPN 建立失败")
+                    .setContentText("可能未授权或被其他 VPN 占用，点按授权并重试")
+                    .setStyle(
+                        NotificationCompat.BigTextStyle().bigText(
+                            "可能未授权或被其他 VPN 占用，点按授权并重试。" +
+                                "（${cause.message ?: "未知原因"}）"
+                        ),
+                    )
+                    .setContentIntent(retryIntent)
+                    .setAutoCancel(true)
+                    .build(),
+            )
+        }.onFailure { Log.w(TAG, "发送失败通知出错", it) }
+    }
+
     companion object {
         private const val TAG = "EasyTierVpnService"
         private const val CHANNEL_ID = "easytier_vpn"
+        private const val CHANNEL_ALERT_ID = "easytier_vpn_alert"
         private const val NOTIFICATION_ID = 1
+        private const val ALERT_NOTIFICATION_ID = 2
         private const val MTU = 1380
         private const val DHCP_POLL_INTERVAL_MS = 3000L
 
@@ -264,12 +323,16 @@ class EasyTierVpnService : VpnService() {
                 .putExtra(EXTRA_INSTANCE_NAME, instanceName)
                 .putExtra(EXTRA_IPV4, ipv4Cidr)
                 .putStringArrayListExtra(EXTRA_PROXY_CIDRS, ArrayList(proxyCidrs))
-            context.startService(intent)
+            // 磁贴点击时应用可能在后台：O+ 上普通 startService 会被后台启动限制拒绝，
+            // 前台服务职责由 onStartCommand 里的 startForeground 满足
+            ContextCompat.startForegroundService(context, intent)
         }
 
         /** 仅关闭 TUN 与前台服务，核心实例不受影响（服务/网络解耦）。 */
         fun stopTun(context: Context) {
-            context.startService(
+            // 磁贴「停止」时应用可能在后台，普通 startService 会被 O+ 后台启动限制拒绝
+            ContextCompat.startForegroundService(
+                context,
                 Intent(context, EasyTierVpnService::class.java).setAction(ACTION_STOP_TUN),
             )
         }

@@ -1,11 +1,15 @@
 package com.easytier.android
 
+import android.app.Activity
+import android.content.Intent
 import android.graphics.Color
+import android.net.VpnService
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -39,14 +43,24 @@ import com.easytier.android.ui.screens.networks.NetworksScreen
 import com.easytier.android.ui.screens.settings.SettingsScreen
 import com.easytier.android.ui.screens.status.StatusScreen
 import com.easytier.android.ui.theme.EasyTierTheme
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 class MainActivity : ComponentActivity() {
 
+    /** 授权框结果：通过则自动启动服务（磁贴/失败通知转来的场景）。 */
+    private val vpnGrantLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) startServiceAfterVpnGrant()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleVpnIntent(intent)
         val container = (application as EasyTierApp).container
         // 同步读一次初始设置（DataStore 文件极小）：collectAsState 用真实初值，避免首帧闪默认主题
         val initialSettings = runBlocking { container.settingsRepository.settings.first() }
@@ -69,6 +83,34 @@ class MainActivity : ComponentActivity() {
                 EasyTierAppNavHost(container)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleVpnIntent(intent)
+    }
+
+    /**
+     * 磁贴点击 / 失败通知无法弹系统 VPN 授权框，转由应用内申请；
+     * 已授权或授权通过后自动启动服务，补上「被其他 VPN 抢占后从磁贴重开」的场景。
+     */
+    private fun handleVpnIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_REQUEST_VPN_AND_START, false) != true) return
+        val prepare = VpnService.prepare(this)
+        if (prepare != null) vpnGrantLauncher.launch(prepare) else startServiceAfterVpnGrant()
+    }
+
+    private fun startServiceAfterVpnGrant() {
+        lifecycleScope.launch {
+            val container = (application as EasyTierApp).container
+            val enabled = container.networksRepository.networks.first().filter { it.enabled }
+            container.vpnController.startService(enabled)
+        }
+    }
+
+    companion object {
+        /** 携带此 extra 打开应用：申请 VPN 授权，通过后自动启动服务。 */
+        const val EXTRA_REQUEST_VPN_AND_START = "easytier.extra.REQUEST_VPN_AND_START"
     }
 }
 

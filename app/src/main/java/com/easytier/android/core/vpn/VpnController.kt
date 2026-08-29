@@ -254,8 +254,11 @@ class VpnController(
         }
     }
 
-    /** TUN 被系统撤销（onRevoke）：仅重置服务状态，网络实例不受影响。 */
-    fun onTunRevoked() {
+    /**
+     * TUN 掉线：被系统撤销（onRevoke，如被其他 VPN 抢占）或建立失败。
+     * 仅重置服务状态（首页/磁贴回到未运行，下次开启即重试），网络实例不受影响。
+     */
+    fun onTunDown() {
         _serviceRunning.value = false
         scope.launch {
             startMutex.withLock { tunEstablished.clear() }
