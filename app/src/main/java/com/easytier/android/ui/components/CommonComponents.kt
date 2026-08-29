@@ -25,6 +25,9 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -242,12 +245,29 @@ fun EmptyState(
     }
 }
 
-/** 信息条目（标签 + 值）。 */
+/** 全局 Snackbar：MD3 默认反色（inverseSurface）在深色模式是浅底、观感割裂，改为跟随主题的容器色。 */
+@Composable
+fun AppSnackbarHost(
+    hostState: SnackbarHostState,
+    modifier: Modifier = Modifier,
+) {
+    SnackbarHost(hostState, modifier) { data ->
+        Snackbar(
+            snackbarData = data,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            actionColor = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+/** 信息条目（标签 + 值）。monospace = false 用于文本型值（中文等），等宽字体会回退系统字体导致观感不齐。 */
 @Composable
 fun InfoRow(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
+    monospace: Boolean = true,
 ) {
     Row(
         modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -263,7 +283,7 @@ fun InfoRow(
         Text(
             value,
             style = MaterialTheme.typography.bodyMedium,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = if (monospace) FontFamily.Monospace else null,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.End,
             modifier = Modifier.weight(1f),

@@ -3,7 +3,9 @@ package com.easytier.android.ui.screens.status
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,18 +17,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -60,6 +66,7 @@ import com.easytier.android.data.model.peerRoutePairs
 import com.easytier.android.data.model.publicIps
 import com.easytier.android.data.model.publicListeners
 import com.easytier.android.ui.components.AppCard
+import com.easytier.android.ui.components.AppSnackbarHost
 import com.easytier.android.ui.components.EmptyState
 import com.easytier.android.ui.components.InfoRow
 import com.easytier.android.ui.components.PillBadge
@@ -137,6 +144,8 @@ fun StatusScreen(
         clipboard.setText(AnnotatedString(ip))
         scope.launch { snackbarHostState.showSnackbar("已复制") }
     }
+    // 单击节点卡打开详情对话框；长按复制 IP
+    var selectedPeer by remember { mutableStateOf<TaggedPeer?>(null) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -154,6 +163,14 @@ fun StatusScreen(
     val taggedPeers = remember(running) {
         running.flatMap { (name, info) ->
             info.peerRoutePairs().map { TaggedPeer(name, it) }
+        }
+    }
+    // peerId → 主机名（空名回退 peer-<id>），供详情对话框解析下一跳
+    val hostnameByPeer = remember(running) {
+        running.associate { (name, info) ->
+            name to info.routes.associate { r ->
+                r.peerId to (r.hostname.takeIf { it.isNotBlank() } ?: "peer-${r.peerId}")
+            }
         }
     }
     val rxTotal = running.sumOf { (_, info) ->
@@ -218,17 +235,33 @@ fun StatusScreen(
                         contentType = { "peer" },
                     ) { tagged ->
                         Box(Modifier.animateItem()) {
-                            PeerCard(tagged.pair, networkName = if (multi) tagged.network else null)
+                            PeerCard(
+                                tagged.pair,
+                                networkName = if (multi) tagged.network else null,
+                                onClick = { selectedPeer = tagged },
+                                onLongClick = {
+                                    tagged.pair.route.ipv4Addr?.toIpString()?.let(copyIpToClipboard)
+                                },
+                            )
                         }
                     }
                 }
             }
         }
 
-        SnackbarHost(
+        AppSnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
+
+        selectedPeer?.let { peer ->
+            PeerDetailDialog(
+                tagged = peer,
+                hostnames = hostnameByPeer[peer.network].orEmpty(),
+                onCopyIp = copyIpToClipboard,
+                onDismiss = { selectedPeer = null },
+            )
+        }
     }
 }
 
@@ -470,9 +503,18 @@ private fun TrafficStat(
     }
 }
 
-/** 对等节点卡：名称 + 延迟，IP + 路由代价（官方 cost==1 p2p / relay(n)）。 */
+/**
+ * 对等节点卡：名称 + 延迟，IP + 路由代价（官方 cost==1 p2p / relay(n)）。
+ * 单击查看详情，长按复制 IP；combinedClickable 放在内层 Column（Card 会裁剪内容，涟漪不出圆角）。
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PeerCard(pair: PeerRoutePair, networkName: String? = null) {
+private fun PeerCard(
+    pair: PeerRoutePair,
+    networkName: String? = null,
+    onClick: () -> Unit = {},
+    onLongClick: () -> Unit = {},
+) {
     val statusColors = LocalStatusColors.current
     val route = pair.route
     val conn = pair.defaultConn
@@ -503,7 +545,17 @@ private fun PeerCard(pair: PeerRoutePair, networkName: String? = null) {
     }
 
     AppCard {
-        Column(Modifier.padding(16.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClickLabel = "查看节点详情",
+                    onLongClickLabel = "复制 IP 地址",
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                )
+                .padding(16.dp),
+        ) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -574,5 +626,130 @@ private fun PeerCard(pair: PeerRoutePair, networkName: String? = null) {
             }
         }
     }
+}
+
+/** 详情分组小标题。 */
+@Composable
+private fun DetailSection(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.Medium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 14.dp, bottom = 2.dp),
+    )
+}
+
+/**
+ * 对等节点详情对话框：IP（点击复制）/ 基本信息 / 路由 / 连接隧道。
+ * 内容为打开时的快照，不随状态页 2s 轮询刷新；限高滚动对齐 LicenseTextDialog。
+ * hostnames：本网络内 peerId → 主机名，用于下一跳显示对端名字。
+ */
+@Composable
+private fun PeerDetailDialog(
+    tagged: TaggedPeer,
+    hostnames: Map<Long, String>,
+    onCopyIp: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val route = tagged.pair.route
+    val conn = tagged.pair.defaultConn
+    val stats = conn?.stats
+    val hostname = route.hostname.takeIf { it.isNotBlank() } ?: "peer-${route.peerId}"
+    val ip = route.ipv4Addr?.toIpString()
+    // 与卡片徽标一致的三态：公共服务器 / P2P 直连 / 中转
+    val connTypeLabel = when {
+        route.isPublicServer -> "公共服务器"
+        route.isDirect -> "P2P 直连"
+        else -> "中转"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(hostname, maxLines = 1)
+                Text(
+                    tagged.network,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        text = {
+            Column(
+                Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                if (ip != null) {
+                    Row(
+                        Modifier
+                            .clip(MaterialTheme.shapes.small)
+                            .clickable(onClickLabel = "复制 IP 地址") { onCopyIp(ip) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            ip,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Icon(
+                            AppIcons.ContentCopy,
+                            null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 6.dp).size(16.dp),
+                        )
+                    }
+                }
+
+                DetailSection("基本信息")
+                InfoRow("主机名", route.hostname.ifBlank { "--" }, monospace = false)
+                InfoRow("Peer ID", route.peerId.toString())
+                InfoRow("版本", route.version.ifBlank { "--" })
+                route.stunInfo?.let { InfoRow("NAT 类型", it.udpNatType.label, monospace = false) }
+
+                DetailSection("路由")
+                InfoRow("连接方式", connTypeLabel, monospace = false)
+                InfoRow("路由代价", route.cost.toString())
+                InfoRow(
+                    "路径延迟",
+                    if (route.pathLatency > 0) "${route.pathLatency} ms" else "--",
+                )
+                InfoRow(
+                    "下一跳",
+                    when {
+                        route.nextHopPeerId == 0L -> "--"
+                        route.nextHopPeerId == route.peerId -> "无"
+                        else -> hostnames[route.nextHopPeerId] ?: "Peer ${route.nextHopPeerId}"
+                    },
+                    monospace = false,
+                )
+                if (route.proxyCidrs.isNotEmpty()) {
+                    InfoRow("代理网段", route.proxyCidrs.joinToString("\n"))
+                }
+
+                if (conn != null) {
+                    DetailSection("连接隧道")
+                    conn.tunnel?.let { tunnel ->
+                        InfoRow("协议", tunnel.protoLabel)
+                        tunnel.localAddr?.url?.takeIf { it.isNotBlank() }?.let { InfoRow("本地地址", it) }
+                        tunnel.remoteAddr?.url?.takeIf { it.isNotBlank() }?.let { InfoRow("远程地址", it) }
+                    }
+                    stats?.let {
+                        InfoRow("延迟", if (it.latencyMs > 0) "${it.latencyMs} ms" else "--")
+                        InfoRow("收 / 发", "↓ ${Format.bytes(it.rxBytesLong)} / ↑ ${Format.bytes(it.txBytesLong)}")
+                    }
+                    InfoRow("丢包率", "%.1f%%".format((conn.lossRate) * 100))
+                    if (conn.connId.isNotBlank()) InfoRow("连接 ID", conn.connId)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        },
+    )
 }
 

@@ -30,7 +30,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -68,6 +67,7 @@ import com.easytier.android.data.model.NetworkingMethod
 import com.easytier.android.data.model.SavedNetwork
 import com.easytier.android.data.store.NetworksRepository
 import com.easytier.android.ui.components.AppCard
+import com.easytier.android.ui.components.AppSnackbarHost
 import com.easytier.android.ui.components.EmptyState
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.ServiceHeroCard
@@ -292,7 +292,7 @@ fun NetworksScreen(
             )
         }
 
-        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+        AppSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
 }
 

@@ -32,7 +32,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -65,6 +64,7 @@ import com.easytier.android.data.model.NetworkingMethod
 import com.easytier.android.data.model.PortForwardEntry
 import com.easytier.android.data.model.SavedNetwork
 import com.easytier.android.ui.components.AppCard
+import com.easytier.android.ui.components.AppSnackbarHost
 import com.easytier.android.ui.components.ConfirmDialog
 import com.easytier.android.ui.components.EmptyState
 import com.easytier.android.ui.components.IntField
@@ -233,7 +233,7 @@ fun NetworkEditorScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { AppSnackbarHost(snackbar) },
         // 外层（MainActivity 的）Scaffold 已处理系统栏/底栏 inset，这里清零杜绝双重 pad
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
