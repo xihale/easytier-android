@@ -1,8 +1,44 @@
+import java.util.concurrent.TimeUnit
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+// 版本号由 git tag 派生，避免 build.gradle 与 tag 手工同步漂移：
+// versionName = git describe 去 v 前缀——精确打在 tag 上时是干净 semver（如 0.1.2），
+//   tag 之后形如 0.1.2-1-g<sha>，工作区有未提交改动再加 -dirty；
+// versionCode = major*1_000_000 + minor*10_000 + patch*100 + tag 后提交数（封顶 99），单调递增
+fun runGit(vararg args: String): String? = runCatching {
+    val process = ProcessBuilder("git", *args)
+        .directory(rootDir)
+        .start()
+    // 不用 Kotlin 的 InputStream.readText() 扩展：部分 Gradle/Kotlin 组合下脚本编译期解析不到该扩展
+    val output = String(process.inputStream.readAllBytes(), Charsets.UTF_8)
+    process.waitFor(10, TimeUnit.SECONDS)
+    output.trim().takeIf { process.exitValue() == 0 }
+}.getOrNull()
+
+val appVersion: Pair<String, Int> = run {
+    val describe = runGit("describe", "--tags", "--long", "--dirty", "--always")
+    val match = Regex("""^v?(\d+)\.(\d+)\.(\d+)(?:-(\d+)-g[0-9a-f]+)?(-dirty)?$""")
+        .find(describe.orEmpty())
+    if (match == null) {
+        logger.warn("无法从 git describe 解析版本号（describe=$describe），回退 0.0.0")
+        "0.0.0" to 1
+    } else {
+        val (major, minor, patch) = match.destructured
+        val commitsAfter = match.groupValues[4].toIntOrNull() ?: 0
+        // 精确在 tag 上时去掉 --long 的 -0-g<sha> 尾巴，发布产物拿到干净 semver
+        val name = describe!!.removePrefix("v").let {
+            if (commitsAfter == 0) it.replace(Regex("""-0-g[0-9a-f]+"""), "") else it
+        }
+        val code = major.toInt() * 1_000_000 + minor.toInt() * 10_000 +
+            patch.toInt() * 100 + commitsAfter.coerceAtMost(99)
+        name to code
+    }
 }
 
 android {
@@ -15,8 +51,8 @@ android {
         applicationId = "com.easytier.android.native"
         minSdk = 24
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = appVersion.second
+        versionName = appVersion.first
 
         ndk {
             abiFilters += listOf("arm64-v8a")
