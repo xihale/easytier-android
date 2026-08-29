@@ -5,9 +5,11 @@ import com.easytier.android.core.engine.EasyTierEngine
 import com.easytier.android.core.vpn.VpnController
 import com.easytier.android.data.store.NetworksRepository
 import com.easytier.android.data.store.SettingsRepository
+import com.easytier.android.data.update.UpdateChecker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /** 应用级依赖容器。 */
 class AppContainer(app: Application) {
@@ -15,6 +17,7 @@ class AppContainer(app: Application) {
     val networksRepository = NetworksRepository(app)
     val engine = EasyTierEngine()
     val vpnController = VpnController(app, engine, settingsRepository)
+    val updateChecker = UpdateChecker(settingsRepository)
 }
 
 class EasyTierApp : Application() {
@@ -41,5 +44,7 @@ class EasyTierApp : Application() {
     override fun onCreate() {
         super.onCreate()
         appInstance = this
+        // 应用冷启动时，按频率执行一次静默的自动检测更新（失败不上报）
+        applicationScope.launch { container.updateChecker.maybeAutoCheck() }
     }
 }

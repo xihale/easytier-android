@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.VpnService
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,12 +29,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import com.easytier.android.R
@@ -57,16 +58,27 @@ import com.easytier.android.core.vpn.BootCompletedReceiver
 import com.easytier.android.data.store.AppSettings
 import com.easytier.android.data.store.SettingsRepository
 import com.easytier.android.ui.components.AppCard
+import com.easytier.android.ui.components.AppSnackbarHost
 import com.easytier.android.ui.components.ChoiceRow
 import com.easytier.android.ui.components.OssLicensesDialog
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.SettingRow
 import com.easytier.android.ui.components.SwitchRow
+import android.net.Uri
+import com.easytier.android.data.update.UpdateCheckResult
+import com.easytier.android.ui.components.PillBadge
 import com.easytier.android.ui.icons.AppIcons
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.isSystemInDarkTheme
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 class SettingsViewModel : ViewModel() {
 
     private val repo: SettingsRepository =
@@ -93,12 +105,37 @@ class SettingsViewModel : ViewModel() {
 
     fun setVpnEnabled(enabled: Boolean) = launchIO { repo.setVpnEnabled(enabled) }
 
+    fun setUpdateInterval(mode: String) = launchIO { repo.setUpdateInterval(mode) }
+
+    private val _updateCheckResult = MutableStateFlow<UpdateCheckResult>(UpdateCheckResult.Idle)
+    val updateCheckResult: StateFlow<UpdateCheckResult> = _updateCheckResult.asStateFlow()
+
+    // 手动「检查更新」：在 UI 显示检查中→结果，同时落库（用于自动检查触发与关于页显示）
+    fun checkUpdate() = viewModelScope.launch {
+        _updateCheckResult.value = UpdateCheckResult.Checking
+        val result = EasyTierApp.get().container.updateChecker.checkNow()
+        _updateCheckResult.value = result
+        val now = System.currentTimeMillis()
+        val settingsRepo = EasyTierApp.get().container.settingsRepository
+        settingsRepo.setLastUpdateCheckAt(now)
+        when (result) {
+            is UpdateCheckResult.Newer -> settingsRepo.setPendingUpdate(result.info)
+            is UpdateCheckResult.UpToDate -> settingsRepo.clearPendingUpdate()
+            UpdateCheckResult.Checking, UpdateCheckResult.Idle, UpdateCheckResult.Error -> Unit
+        }
+    }
+
     private fun launchIO(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
     }
 }
 
 private val THEME_OPTIONS = listOf("system" to "跟随系统", "light" to "浅色", "dark" to "深色")
+
+// 自动检测频率选项（默认关闭）。更新检测从 GitHub Releases 检查
+private val UPDATE_INTERVAL_OPTIONS = listOf(
+    "off" to "关闭", "startup" to "每次启动", "daily" to "每天", "weekly" to "每周",
+)
 
 @Composable
 fun SettingsScreen() {
@@ -111,6 +148,10 @@ fun SettingsScreen() {
     var showThemeDialog by remember { mutableStateOf(false) }
     var showSocks5Dialog by remember { mutableStateOf(false) }
     var showLicenseDialog by remember { mutableStateOf(false) }
+    var showUpdateIntervalDialog by remember { mutableStateOf(false) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    // 检查按钮的即时状态（用于显示检查中菊叶与发现新版本是否该弹窗）
+    val checkState by vm.updateCheckResult.collectAsState()
 
     // VPN 权限申请：未授权时弹系统授权框；已授权也提示用户当前状态
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
@@ -216,13 +257,26 @@ fun SettingsScreen() {
                             .padding(top = 20.dp, bottom = 16.dp, start = 16.dp, end = 16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Image(
-                            painter = painterResource(R.drawable.ic_launcher),
-                            contentDescription = "EasyTier Logo",
+                        // Logo 随应用内深浅色主题切换底色，字形复用桌面自适应图标的前景并放大铺满，
+                        // 避免整图 logo（背景自带大留白）在应用内显得字形过小
+                        val isDarkTheme = when (s.themeMode) {
+                            "light" -> false
+                            "dark" -> true
+                            else -> isSystemInDarkTheme()
+                        }
+                        Box(
                             modifier = Modifier
                                 .size(72.dp)
-                                .clip(RoundedCornerShape(16.dp)),
-                        )
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (isDarkTheme) Color(0xFF131313) else Color(0xFFFAFAFC)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_launcher_foreground),
+                                contentDescription = "EasyTier Logo",
+                                modifier = Modifier.size(90.dp),
+                            )
+                        }
                         Spacer(Modifier.height(12.dp))
                         Text(
                             text = "EasyTier",
@@ -255,6 +309,53 @@ fun SettingsScreen() {
                     )
 
                     Column(Modifier.padding(vertical = 4.dp)) {
+                        // 待查看的新版本，突出展示
+                        if (s.pendingUpdateVersion.isNotEmpty()) {
+                            SettingRow(
+                                title = "发现新版本 v${s.pendingUpdateVersion}",
+                                subtitle = "点击前往下载",
+                                icon = AppIcons.Download,
+                                onClick = {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(s.pendingUpdateUrl))
+                                    )
+                                },
+                                trailing = {
+                                    PillBadge(
+                                        text = "新",
+                                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                                        labelColor = MaterialTheme.colorScheme.onErrorContainer,
+                                    )
+                                },
+                            )
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            )
+                        }
+                        SettingRow(
+                            title = "检查更新",
+                            subtitle = UpdateCheckSubtitle(checkState, s),
+                            icon = AppIcons.Download,
+                            onClick = { vm.checkUpdate() },
+                            trailing = {
+                                if (checkState is UpdateCheckResult.Checking) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    Chevron()
+                                }
+                            },
+                        )
+                        ChoiceRow(
+                            title = "自动检查",
+                            value = UPDATE_INTERVAL_OPTIONS
+                                .firstOrNull { it.first == s.updateCheckInterval }?.second ?: "关闭",
+                            icon = AppIcons.Schedule,
+                            onClick = { showUpdateIntervalDialog = true },
+                        )
                         SettingRow(
                             title = "VPN 权限",
                             icon = AppIcons.Shield,
@@ -287,7 +388,7 @@ fun SettingsScreen() {
 
             Spacer(Modifier.height(32.dp))
         }
-        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+        AppSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
 
     if (showThemeDialog) {
@@ -320,6 +421,53 @@ fun SettingsScreen() {
             },
         )
     }
+
+    // 检查更新结果 → 轻提示；发现新版本 → 弹窗
+    LaunchedEffect(checkState) {
+        when (checkState) {
+            is UpdateCheckResult.UpToDate -> snackbar.showSnackbar("已是最新版本")
+            is UpdateCheckResult.Error -> snackbar.showSnackbar("检查更新失败，请检查网络")
+            is UpdateCheckResult.Newer -> showUpdateDialog = true
+            else -> Unit
+        }
+    }
+    if (showUpdateIntervalDialog) {
+        ChoiceDialog(
+            title = "自动检查更新",
+            options = UPDATE_INTERVAL_OPTIONS,
+            selected = s.updateCheckInterval,
+            onSelect = { vm.setUpdateInterval(it); showUpdateIntervalDialog = false },
+            onDismiss = { showUpdateIntervalDialog = false },
+        )
+    }
+    if (showUpdateDialog && checkState is UpdateCheckResult.Newer) {
+        val info = (checkState as UpdateCheckResult.Newer).info
+        AlertDialog(
+            onDismissRequest = { showUpdateDialog = false },
+            title = { Text("发现新版本 v${info.version}") },
+            text = { Text(info.notes?.ifEmpty { null } ?: "点击前往发布页下载更新。") } ,
+            confirmButton = {
+                TextButton(onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.url)))
+                    showUpdateDialog = false
+                }) { Text("去更新") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUpdateDialog = false }) { Text("以后再说") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun UpdateCheckSubtitle(state: UpdateCheckResult, s: AppSettings): String {
+    if (state is UpdateCheckResult.Checking) return "检查中…"
+    if (s.lastUpdateCheckAt == 0L) return "从未检查"
+    val whenStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+        .format(Date(s.lastUpdateCheckAt))
+    return if (s.pendingUpdateVersion.isNotEmpty())
+        "发现 v${s.pendingUpdateVersion} · 上次 ${whenStr}"
+    else "上次检查 ${whenStr}"
 }
 
 @Composable
