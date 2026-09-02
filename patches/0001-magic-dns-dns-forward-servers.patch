@@ -1,0 +1,215 @@
+--- a/easytier-proto/proto/common.proto
++++ b/easytier-proto/proto/common.proto
+@@ -88,6 +88,13 @@
+   // Prefer direct credential peers that already relay to a destination over
+   // advertising another direct edge to the same destination.
+   bool prefer_peer_relay = 44;
++
++  // Upstream DNS servers the magic dns server forwards non-local queries to.
++  // Entries are URLs: udp://host[:port], tcp://host[:port], tls://host[:port]
++  // (DNS over TLS, default port 853) or https://host[:port][/path]
++  // (DNS over HTTPS, default port 443). Empty = system resolv.conf or
++  // built-in defaults. Hostnames are resolved once at server startup.
++  repeated string dns_forward_servers = 45;
+ }
+ 
+ message RpcDescriptor {
+--- a/easytier-core/src/config/toml.rs
++++ b/easytier-core/src/config/toml.rs
+@@ -72,6 +72,7 @@
+         prefer_peer_relay: false,
+         enable_udp_broadcast_relay: false,
+         socket_mark: None,
++        dns_forward_servers: vec![],
+     }
+ }
+ 
+@@ -166,6 +167,7 @@
+         prefer_peer_relay,
+         enable_udp_broadcast_relay,
+         socket_mark,
++        dns_forward_servers,
+     ],
+     u64s: [foreign_relay_bps_limit, instance_recv_bps_limit],
+     enums: [data_compress_algo]
+--- a/easytier/src/instance/dns_server/config.rs
++++ b/easytier/src/instance/dns_server/config.rs
+@@ -1,5 +1,6 @@
+ use hickory_proto::rr;
+ use hickory_proto::rr::RData;
++use hickory_resolver::config::NameServerConfig;
+ use serde::{Deserialize, Serialize};
+ use std::collections::HashMap;
+ use std::net::{IpAddr, Ipv4Addr};
+@@ -16,6 +17,12 @@
+     #[builder(default = Vec::new())]
+     #[serde(default)]
+     excluded_forward_nameservers: Vec<IpAddr>,
++
++    /// Explicit upstream name servers for the root zone forwarder, taking
++    /// precedence over the system resolv.conf / built-in defaults when
++    /// non-empty. Built from the `dns_forward_servers` flag.
++    #[builder(default = Vec::new())]
++    forward_nameservers: Vec<NameServerConfig>,
+ }
+ 
+ impl RunConfig {
+@@ -30,6 +37,10 @@
+     pub fn excluded_forward_nameservers(&self) -> &Vec<IpAddr> {
+         &self.excluded_forward_nameservers
+     }
++
++    pub fn forward_nameservers(&self) -> &Vec<NameServerConfig> {
++        &self.forward_nameservers
++    }
+ }
+ 
+ #[derive(Serialize, Deserialize, Debug, Clone, derive_builder::Builder)]
+--- a/easytier/src/instance/dns_server/server.rs
++++ b/easytier/src/instance/dns_server/server.rs
+@@ -83,13 +83,25 @@
+             catalog.upsert(zone.clone().into(), vec![Arc::new(authroty)]);
+         }
+ 
+-        // use forwarder authority for the root zone
+-        let system_conf =
+-            read_system_conf().unwrap_or((get_default_resolver_config(), ResolverOpts::default()));
++        // use forwarder authority for the root zone.
++        // Explicitly configured forward servers (dns_forward_servers flag) take
++        // precedence; empty falls back to system resolv.conf and finally the
++        // built-in defaults (e.g. android has no readable resolv.conf).
++        let (name_servers, resolver_opts) = if config.forward_nameservers().is_empty() {
++            let system_conf = read_system_conf()
++                .unwrap_or((get_default_resolver_config(), ResolverOpts::default()));
++            (
++                system_conf.0.name_servers().to_vec(),
++                system_conf.1,
++            )
++        } else {
++            (
++                config.forward_nameservers().clone(),
++                ResolverOpts::default(),
++            )
++        };
+         let forward_config = ForwardConfig {
+-            name_servers: system_conf
+-                .0
+-                .name_servers()
++            name_servers: name_servers
+                 .iter()
+                 .filter(|&x| {
+                     !config
+@@ -99,7 +111,7 @@
+                 .cloned()
+                 .collect::<Vec<_>>()
+                 .into(),
+-            options: Some(system_conf.1),
++            options: Some(resolver_opts),
+         };
+         let auth = ForwardAuthority::builder_with_config(
+             forward_config,
+--- a/easytier/src/instance/dns_server/server_instance.rs
++++ b/easytier/src/instance/dns_server/server_instance.rs
+@@ -43,6 +43,7 @@
+ use easytier_core::instance::CorePacketPlane;
+ use hickory_proto::rr::LowerName;
+ use hickory_proto::serialize::binary::{BinDecodable, BinEncoder};
++use hickory_resolver::config::NameServerConfig;
+ use hickory_server::authority::{MessageRequest, MessageResponse};
+ use hickory_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
+ use std::sync::Mutex;
+@@ -367,8 +368,11 @@
+         let mut rpc_server = StandAloneServer::new(tcp_listener);
+         rpc_server.serve().await?;
+ 
++        let forward_nameservers =
++            resolve_dns_forward_servers(global_ctx.get_flags().dns_forward_servers).await;
+         let dns_config = RunConfigBuilder::default()
+             .general(GeneralConfigBuilder::default().build()?)
++            .forward_nameservers(forward_nameservers)
+             .excluded_forward_nameservers(vec![fake_ip.into()])
+             .build()?;
+         let mut dns_server = Server::new(dns_config);
+@@ -455,3 +459,70 @@
+         println!("MagicDnsServerInstance dropped");
+     }
+ }
++
++/// Resolves the `dns_forward_servers` flag into hickory name server configs.
++/// Entries that fail to parse or resolve are skipped with a warning, so one
++/// bad entry cannot take down the whole forwarder. Hostnames are resolved
++/// once here via the system resolver and the resulting address is pinned;
++/// TLS names are kept for certificate validation.
++async fn resolve_dns_forward_servers(urls: Vec<String>) -> Vec<NameServerConfig> {
++    let mut ret = Vec::new();
++    for raw in urls {
++        if raw.trim().is_empty() {
++            continue;
++        }
++        match parse_dns_forward_server(raw.trim()).await {
++            Ok(config) => ret.push(config),
++            Err(error) => {
++                tracing::warn!(url = %raw, ?error, "invalid dns_forward_servers entry, skipped");
++            }
++        }
++    }
++    if !ret.is_empty() {
++        tracing::info!(servers = ?ret, "using explicitly configured dns forward servers");
++    }
++    ret
++}
++
++async fn parse_dns_forward_server(raw: &str) -> anyhow::Result<NameServerConfig> {
++    use hickory_proto::xfer::Protocol;
++
++    let parsed = url::Url::parse(raw)?;
++    let protocol = match parsed.scheme().to_ascii_lowercase().as_str() {
++        "udp" => Protocol::Udp,
++        "tcp" => Protocol::Tcp,
++        "tls" => Protocol::Tls,
++        "https" => Protocol::Https,
++        other => anyhow::bail!("unsupported scheme {}, expect udp/tcp/tls/https", other),
++    };
++    let host = parsed
++        .host_str()
++        .context("missing server host")
++        .map(str::to_owned)?;
++    let default_port = match protocol {
++        Protocol::Udp | Protocol::Tcp => 53,
++        Protocol::Tls => 853,
++        _ => 443,
++    };
++    let port = parsed.port().unwrap_or(default_port);
++
++    // Pin the address once at startup: hickory does not bootstrap hostnames
++    // for forwarder entries on its own. Literal IPs skip the lookup.
++    let socket_addr = tokio::net::lookup_host((host.as_str(), port))
++        .await
++        .with_context(|| format!("failed to resolve dns forward server host {host}"))?
++        .next()
++        .with_context(|| format!("no address found for dns forward server host {host}"))?;
++
++    let mut config = NameServerConfig::new(socket_addr, protocol);
++    if matches!(protocol, Protocol::Tls | Protocol::Https) {
++        config.tls_dns_name = Some(host);
++    }
++    if protocol == Protocol::Https {
++        let path = parsed.path();
++        if !path.is_empty() && path != "/" {
++            config.http_endpoint = Some(path.to_string());
++        }
++    }
++    Ok(config)
++}
+--- a/easytier/Cargo.toml
++++ b/easytier/Cargo.toml
+@@ -214,6 +214,9 @@
+ hickory-client = { version = "0.25.2", optional = true }
+ hickory-server = { version = "0.25.2", features = [
+     "resolver",
++    "tls-ring",
++    "https-ring",
++    "webpki-roots",
+ ], optional = true }
+ 
+ bon = "3.9.1"

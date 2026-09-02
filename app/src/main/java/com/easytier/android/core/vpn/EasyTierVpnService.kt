@@ -41,6 +41,8 @@ class EasyTierVpnService : VpnService() {
 
     private var currentIpv4: String? = null
     private var currentProxyCidrs: List<String> = emptyList()
+    private var currentMagicDns = false
+    private var currentDnsZone: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -69,6 +71,8 @@ class EasyTierVpnService : VpnService() {
         instanceName = intent?.getStringExtra(EXTRA_INSTANCE_NAME)
         val ipv4 = intent?.getStringExtra(EXTRA_IPV4)
         val cidrs = intent?.getStringArrayListExtra(EXTRA_PROXY_CIDRS).orEmpty()
+        val magicDns = intent?.getBooleanExtra(EXTRA_MAGIC_DNS, false) ?: false
+        val dnsZone = intent?.getStringExtra(EXTRA_DNS_ZONE)
 
         if (instanceName == null || ipv4 == null) {
             Log.e(TAG, "缺少必要参数，停止服务")
@@ -83,27 +87,32 @@ class EasyTierVpnService : VpnService() {
         acquireMulticastLock()
 
         scope.launch {
-            runCatching { setupVpn(ipv4, cidrs) }
+            runCatching { setupVpn(ipv4, cidrs, magicDns, dnsZone) }
                 .onFailure { Log.e(TAG, "VPN 建立失败", it); onEstablishFailed(it) }
         }
         return START_STICKY
     }
 
-    private suspend fun setupVpn(ipv4Cidr: String, proxyCidrs: List<String>) {
-        establish(ipv4Cidr, proxyCidrs)
+    private suspend fun setupVpn(
+        ipv4Cidr: String,
+        proxyCidrs: List<String>,
+        magicDns: Boolean,
+        dnsZone: String?,
+    ) {
+        establish(ipv4Cidr, proxyCidrs, magicDns, dnsZone)
 
-        // DHCP 轮询：IP/网段变化时重建
+        // DHCP 轮询：IP/网段变化时重建（DNS 配置不变，沿用本次启动的值）
         while (scope.isActive && vpnInterface != null) {
             delay(DHCP_POLL_INTERVAL_MS)
             val (newIp, newCidrs) = queryRuntimeNetwork()
             if (newIp != null && (newIp != currentIpv4 || newCidrs != currentProxyCidrs)) {
                 Log.i(TAG, "网络变化，重建 TUN: $currentIpv4 -> $newIp")
-                establish(newIp, newCidrs)
+                establish(newIp, newCidrs, currentMagicDns, currentDnsZone)
             }
         }
     }
 
-    private fun establish(ipv4Cidr: String, proxyCidrs: List<String>) {
+    private fun establish(ipv4Cidr: String, proxyCidrs: List<String>, magicDns: Boolean, dnsZone: String?) {
         vpnInterface?.close()
 
         val (ip, prefix) = splitCidr(ipv4Cidr, 24)
@@ -112,8 +121,20 @@ class EasyTierVpnService : VpnService() {
             .setBlocking(false)
             .setMtu(MTU)
             .addAddress(ip, prefix)
-            .addDnsServer("223.5.5.5")
-            .addDnsServer("114.114.114.114")
+
+        if (magicDns) {
+            // Magic DNS：核心在 TUN 数据面应答发往 fake IP 的查询（不监听 53 端口），
+            // 路由 + 系统 DNS 都指向它；普通域名由核心转发上游（Android 上为 223.5.5.5 等）
+            builder.addRoute(MAGIC_DNS_FAKE_IP, 32)
+            builder.addDnsServer(MAGIC_DNS_FAKE_IP)
+            dnsZone?.let { zone ->
+                runCatching { builder.addSearchDomain(zone) }
+                    .onFailure { Log.w(TAG, "添加 DNS 搜索域失败: ${it.message}") }
+            }
+        } else {
+            builder.addDnsServer("223.5.5.5")
+            builder.addDnsServer("114.114.114.114")
+        }
 
         // 与官方 TauriVpnService 对齐：给 TUN 一个 ULA IPv6 地址，避免核心 IPv6 路径无接口。
         runCatching { builder.addAddress("fd00::1", 128) }
@@ -138,6 +159,8 @@ class EasyTierVpnService : VpnService() {
         vpnInterface = tun
         currentIpv4 = ipv4Cidr
         currentProxyCidrs = proxyCidrs
+        currentMagicDns = magicDns
+        currentDnsZone = dnsZone
 
         val name = instanceName
         if (name != null) {
@@ -146,7 +169,7 @@ class EasyTierVpnService : VpnService() {
                 throw IllegalStateException("setTunFd 失败: ${EasyTierJNI.getLastError()}")
             }
         }
-        Log.i(TAG, "TUN 已建立: $ip/$prefix, 路由 ${proxyCidrs.size} 条")
+        Log.i(TAG, "TUN 已建立: $ip/$prefix, 路由 ${proxyCidrs.size} 条${if (magicDns) ", Magic DNS($dnsZone)" else ""}")
     }
 
     /** 从核心查询当前虚拟 IP 与代理网段。 */
@@ -314,14 +337,28 @@ class EasyTierVpnService : VpnService() {
         const val EXTRA_INSTANCE_NAME = "instance_name"
         const val EXTRA_IPV4 = "ipv4_address"
         const val EXTRA_PROXY_CIDRS = "proxy_cidrs"
+        const val EXTRA_MAGIC_DNS = "magic_dns"
+        const val EXTRA_DNS_ZONE = "dns_zone"
+
+        /** 核心 Magic DNS 的固定 fake IP（MAGIC_DNS_FAKE_IP），查询由 TUN 数据面拦截应答 */
+        private const val MAGIC_DNS_FAKE_IP = "100.100.100.101"
         const val ACTION_STOP = "com.easytier.android.STOP_VPN"
         const val ACTION_STOP_TUN = "com.easytier.android.STOP_VPN_TUN"
 
         /** 便捷启动。 */
-        fun start(context: Context, instanceName: String, ipv4Cidr: String, proxyCidrs: List<String>) {
+        fun start(
+            context: Context,
+            instanceName: String,
+            ipv4Cidr: String,
+            proxyCidrs: List<String>,
+            magicDns: Boolean = false,
+            dnsZone: String? = null,
+        ) {
             val intent = Intent(context, EasyTierVpnService::class.java)
                 .putExtra(EXTRA_INSTANCE_NAME, instanceName)
                 .putExtra(EXTRA_IPV4, ipv4Cidr)
+                .putExtra(EXTRA_MAGIC_DNS, magicDns)
+                .putExtra(EXTRA_DNS_ZONE, dnsZone)
                 .putStringArrayListExtra(EXTRA_PROXY_CIDRS, ArrayList(proxyCidrs))
             // 磁贴点击时应用可能在后台：O+ 上普通 startService 会被后台启动限制拒绝，
             // 前台服务职责由 onStartCommand 里的 startForeground 满足

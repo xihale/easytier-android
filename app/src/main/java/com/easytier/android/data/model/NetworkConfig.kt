@@ -51,7 +51,14 @@ data class NetworkConfig(
     @SerialName("disable_udp_hole_punching") val disableUdpHolePunching: Boolean? = null,
     @SerialName("mtu") val mtu: Int? = null,
     @SerialName("mapped_listeners") val mappedListeners: List<String>? = null,
-    @SerialName("enable_magic_dns") val enableMagicDns: Boolean? = null,
+    // Magic DNS：核心 flag 是 accept_dns（enable_magic_dns 是 GUI 层名字）；开启后
+    // 系统可经 VPN 用「主机名.后缀」访问组网设备。null 表示使用核心默认值。
+    @SerialName("enable_magic_dns") val enableMagicDns: Boolean = true,
+    // DNS 后缀，null/空 = 用网络名（多网络时各网络天然落在各自后缀下）
+    @SerialName("tld_dns_zone") val tldDnsZone: String? = null,
+    // Magic DNS 转发普通域名查询的上游，udp:// tcp:// tls://(DoT) https://(DoH)。
+    // null/空 = 核心回退系统配置或内置默认。需核心带 dns-forward-servers patch
+    @SerialName("dns_forward_servers") val dnsForwardServers: List<String>? = null,
     @SerialName("enable_private_mode") val enablePrivateMode: Boolean? = null,
     @SerialName("enable_quic_proxy") val enableQuicProxy: Boolean? = null,
     @SerialName("disable_quic_input") val disableQuicInput: Boolean? = null,

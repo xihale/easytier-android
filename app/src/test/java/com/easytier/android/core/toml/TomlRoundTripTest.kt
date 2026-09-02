@@ -56,8 +56,117 @@ class TomlRoundTripTest {
     }
 
     @Test
+    fun `magic dns on by default with network-name zone`() {
+        val toml = TomlGenerator.generate(NetworkConfig(networkName = "xlan"))
+        assertTrue(toml.contains("accept_dns = true"))
+        assertTrue(toml.contains("tld_dns_zone = \"xlan\""))
+        // 核心 flag 键是 accept_dns，写 enable_magic_dns 会被核心忽略
+        assertFalse(toml.contains("enable_magic_dns"))
+    }
+
+    @Test
+    fun `magic dns off emits no accept_dns`() {
+        val toml = TomlGenerator.generate(NetworkConfig(networkName = "n", enableMagicDns = false))
+        assertFalse(toml.contains("accept_dns"))
+        assertFalse(toml.contains("tld_dns_zone"))
+    }
+
+    @Test
+    fun `dns forward servers emitted as toml array`() {
+        val toml = TomlGenerator.generate(
+            NetworkConfig(
+                networkName = "n",
+                dnsForwardServers = listOf("tls://dns.alidns.com", "https://doh.pub/dns-query"),
+            ),
+        )
+        assertTrue(toml.contains("dns_forward_servers = [\"tls://dns.alidns.com\", \"https://doh.pub/dns-query\"]"))
+        // 上游与 magic dns 开关独立：关闭 magic dns 也照常写入
+        val off = TomlGenerator.generate(
+            NetworkConfig(networkName = "n", enableMagicDns = false, dnsForwardServers = listOf("udp://223.5.5.5")),
+        )
+        assertTrue(off.contains("dns_forward_servers = [\"udp://223.5.5.5\"]"))
+        val absent = TomlGenerator.generate(NetworkConfig(networkName = "n"))
+        assertFalse(absent.contains("dns_forward_servers"))
+    }
+
+    @Test
+    fun `importer reads dns forward servers`() {
+        val parsed = TomlImporter.parse(
+            """
+            [network_identity]
+            network_name = "n"
+            [flags]
+            dns_forward_servers = ["tls://dns.alidns.com", "udp://8.8.8.8"]
+            """.trimIndent(),
+        ).getOrThrow()
+        assertEquals(listOf("tls://dns.alidns.com", "udp://8.8.8.8"), parsed.dnsForwardServers)
+        // 生成→导入→生成幂等
+        val again = TomlImporter.parse(TomlGenerator.generate(parsed)).getOrThrow()
+        assertEquals(parsed.dnsForwardServers, again.dnsForwardServers)
+    }
+
+    @Test
+    fun `effective dns zone prefers explicit value and sanitizes network name`() {
+        assertEquals("xlan", TomlGenerator.effectiveDnsZone(NetworkConfig(networkName = "xlan")))
+        assertEquals(
+            "home",
+            TomlGenerator.effectiveDnsZone(NetworkConfig(networkName = "xlan", tldDnsZone = "home.")),
+        )
+        assertEquals(
+            "My-Net",
+            TomlGenerator.effectiveDnsZone(NetworkConfig(networkName = "My Net!")),
+        )
+        // 网络名无合法 DNS 字符时回退核心默认 zone，保证 Magic DNS 仍可用
+        assertEquals(
+            "et.net",
+            TomlGenerator.effectiveDnsZone(NetworkConfig(networkName = "我的网络")),
+        )
+    }
+
+    @Test
+    fun `importer reads magic dns flags`() {
+        fun parse(toml: String) = TomlImporter.parse(toml.trimIndent()).getOrThrow()
+        val on = parse(
+            """
+            [network_identity]
+            network_name = "n"
+            [flags]
+            accept_dns = true
+            tld_dns_zone = "xlan"
+            """,
+        )
+        assertEquals(true, on.enableMagicDns)
+        assertEquals("xlan", on.tldDnsZone)
+
+        assertEquals(false, parse(
+            """
+            [network_identity]
+            network_name = "n"
+            [flags]
+            accept_dns = false
+            """,
+        ).enableMagicDns)
+
+        // 兼容 GUI 层键名 enable_magic_dns；缺省时按应用默认开启
+        assertEquals(true, parse(
+            """
+            [network_identity]
+            network_name = "n"
+            [flags]
+            enable_magic_dns = true
+            """,
+        ).enableMagicDns)
+        assertEquals(true, parse(
+            """
+            [network_identity]
+            network_name = "n"
+            """,
+        ).enableMagicDns)
+    }
+
+    @Test
     fun `null flags stay absent (core defaults apply)`() {
-        val toml = TomlGenerator.generate(NetworkConfig(networkName = "n"))
+        val toml = TomlGenerator.generate(NetworkConfig(networkName = "n", enableMagicDns = false))
         assertFalse(toml.contains("latency_first"))
         assertFalse(toml.contains("no_tun"))
         assertFalse(toml.contains("[flags]"))

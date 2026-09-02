@@ -24,6 +24,20 @@ jobs:
           repository: EasyTier/EasyTier
           path: easytier-upstream
 
+      - name: Apply repo patches to upstream
+        run: |
+          set -e
+          shopt -s nullglob
+          patches=("$GITHUB_WORKSPACE"/patches/*.patch)
+          if [ ${#patches[@]} -eq 0 ]; then
+            echo "无本地 patch，跳过"
+            exit 0
+          fi
+          for p in "${patches[@]}"; do
+            echo "应用 $p"
+            git -C easytier-upstream apply --whitespace=nowarn "$p"
+          done
+
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -78,4 +92,5 @@ jobs:
             EasyTier 核心 JNI 预编译产物（arm64-v8a）。
             版本标注：${{ inputs.version || '自动生成' }}
             上游 commit：${{ steps.upstream.outputs.sha }}
+            本仓库 patches/*.patch 已在构建时应用（LGPL 修改源码见对应文件）
           files: ${{ runner.temp }}/jni/libeasytier_android_jni-arm64-v8a.so

@@ -103,8 +103,14 @@ class VpnController(
         val ipCidr = info.myNodeInfo?.virtualIpv4?.toCidrString() ?: return
         tunEstablished.add(name)
         val cidrs = config.proxyCidrs.map { it.substringBefore("->").trim() }
-        runCatching { EasyTierVpnService.start(context, name, ipCidr, cidrs) }
-            .onFailure { Log.e(TAG, "VPN 服务启动失败", it) }
+        runCatching {
+            EasyTierVpnService.start(
+                context, name, ipCidr, cidrs,
+                magicDns = config.enableMagicDns,
+                // 后缀与生成器同口径：显式配置优先，否则网络名（清洗后）
+                dnsZone = TomlGenerator.effectiveDnsZone(config),
+            )
+        }.onFailure { Log.e(TAG, "VPN 服务启动失败", it) }
     }
 
     /**
@@ -122,10 +128,12 @@ class VpnController(
     /** 实际启动逻辑，调用方需持有 [startMutex]。 */
     private suspend fun startNetworkLocked(network: SavedNetwork) {
         val settings = settingsRepository.settings.first()
-        // 应用层设置覆盖网络配置里的同名项（编辑器已不再暴露 SOCKS5）
+        // 应用层设置覆盖网络配置里的同名项（编辑器已不再暴露 SOCKS5）；
+        // DNS 上游与 SOCKS5 同为全局设置，注入全部网络
         val config = network.config.copy(
             enableSocks5 = settings.enableSocks5,
             socks5Port = if (settings.enableSocks5) settings.socks5Port else null,
+            dnsForwardServers = settings.dnsServers.takeIf { it.isNotEmpty() },
         )
         val effective = network.copy(config = config)
         val name = config.networkName

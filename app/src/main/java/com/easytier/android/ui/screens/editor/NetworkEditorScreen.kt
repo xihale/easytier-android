@@ -527,7 +527,24 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
     SwitchRow("KCP 代理", config.enableKcpProxy ?: false) { v -> update { it.copy(enableKcpProxy = v) } }
     SwitchRow("禁用 P2P", config.disableP2p ?: false) { v -> update { it.copy(disableP2p = v) } }
     SwitchRow("无 TUN 模式", config.noTun ?: false) { v -> update { it.copy(noTun = v) } }
-    SwitchRow("Magic DNS", config.enableMagicDns ?: false) { v -> update { it.copy(enableMagicDns = v) } }
+    SwitchRow("Magic DNS", config.enableMagicDns, subtitle = "用「主机名.后缀」访问组网设备") { v -> update { it.copy(enableMagicDns = v) } }
+    if (config.enableMagicDns) {
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = config.tldDnsZone ?: "",
+            onValueChange = { v -> update { it.copy(tldDnsZone = v.trim().ifBlank { null }) } },
+            label = { Text("域名后缀") },
+            placeholder = { Text(config.networkName) },
+            supportingText = {
+                Text(
+                    "设备可通过 主机名.${TomlGenerator.effectiveDnsZone(config)} 访问，" +
+                        "留空使用网络名",
+                )
+            },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
+        )
+    }
     SwitchRow("私有模式", config.enablePrivateMode ?: false) { v -> update { it.copy(enablePrivateMode = v) } }
     SwitchRow("多线程", config.multiThread ?: true) { v -> update { it.copy(multiThread = v) } }
 

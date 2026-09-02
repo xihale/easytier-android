@@ -106,6 +106,13 @@ object TomlImporter {
             encryptionAlgorithm = flags?.getString("encryption_algorithm"),
             devName = flags?.getString("dev_name"),
             instanceRecvBpsLimit = (flags?.get("instance_recv_bps_limit") as? Number)?.toLong(),
+            // 核心键为 accept_dns；兼容 GUI 层写法 enable_magic_dns；缺省按应用默认（开启）
+            enableMagicDns = flags?.getBoolean("accept_dns")
+                ?: flags?.getBoolean("enable_magic_dns") ?: true,
+            tldDnsZone = flags?.getString("tld_dns_zone"),
+            dnsForwardServers = flags?.getArray("dns_forward_servers")
+                ?.toList()?.mapNotNull { it as? String }
+                ?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() },
             enableVpnPortal = vpnPortal != null,
             vpnPortalListenPort = vpnPortal?.getString("wireguard_listen")
                 ?.substringAfterLast(':')?.toIntOrNull() ?: 11010,

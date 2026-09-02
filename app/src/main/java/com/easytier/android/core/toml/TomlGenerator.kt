@@ -179,6 +179,14 @@ object TomlGenerator {
         config.relayNetworkWhitelist?.takeIf { it.isNotEmpty() }?.let {
             flags["relay_network_whitelist"] = it.joinToString(",")
         }
+        if (config.enableMagicDns) {
+            // 核心侧键名是 accept_dns（enable_magic_dns 会被核心忽略）；
+            // 后缀默认取网络名，多网络时各网络设备天然解析为 主机名.各自网络名
+            flags["accept_dns"] = true
+            flags["tld_dns_zone"] = effectiveDnsZone(config)
+        }
+        // 上游 DNS（DoT/DoH 等）与开关独立写入：magic dns 关闭时核心不启动 DNS 服务，该 flag 自然闲置
+        config.dnsForwardServers?.takeIf { it.isNotEmpty() }?.let { flags["dns_forward_servers"] = it }
 
         if (flags.isNotEmpty()) {
             sb.appendLine()
@@ -191,6 +199,22 @@ object TomlGenerator {
 
         return sb.toString().trimEnd('\n') + "\n"
     }
+
+    /**
+     * Magic DNS 生效后缀：显式配置优先，否则用网络名。
+     * 清洗为合法 DNS 字符（字母/数字/点/连字符），清空后回退核心默认 zone（et.net）。
+     * 服务端（搜索域）与编辑器（预览提示）也复用此规则，保证三处口径一致。
+     */
+    fun effectiveDnsZone(config: NetworkConfig): String {
+        val raw = config.tldDnsZone?.trim()?.trimEnd('.')
+            ?.takeIf { it.isNotBlank() }
+            ?: config.networkName.trim()
+        return raw.replace(INVALID_DNS_CHARS, "-").trim('-', '.')
+            .ifBlank { DEFAULT_DNS_ZONE }
+    }
+
+    private val INVALID_DNS_CHARS = Regex("[^A-Za-z0-9.-]")
+    private const val DEFAULT_DNS_ZONE = "et.net"
 
     /** 仅输出与默认值不同的 flags（用于差异展示）。 */
     fun diffFromDefaults(config: NetworkConfig): Map<String, Pair<Any, Any>> = buildMap {
@@ -224,6 +248,7 @@ object TomlGenerator {
         is String -> "\"${escape(v)}\""
         is Boolean -> v.toString()
         is Int, is Long -> v.toString()
+        is List<*> -> v.joinToString(", ", "[", "]") { "\"${escape(it.toString())}\"" }
         else -> "\"$v\""
     }
 

@@ -20,6 +20,9 @@ data class AppSettings(
     val autoStartOnBoot: Boolean = false,
     val enableSocks5: Boolean = false,
     val socks5Port: Int = 1080,
+    // Magic DNS 转发普通域名查询的上游服务器，支持 udp:// tcp:// tls://(DoT) https://(DoH)。
+    // 空 = 核心内置默认（Android 上为 223.5.5.5 等纯 UDP）
+    val dnsServers: List<String> = emptyList(),
     // 检测更新（默认关闭）。off | startup | daily | weekly
     val updateCheckInterval: String = "off",
     val lastUpdateCheckAt: Long = 0L,
@@ -39,6 +42,8 @@ class SettingsRepository(private val context: Context) {
         val AUTO_START = booleanPreferencesKey("auto_start_on_boot")
         val SOCKS5_ENABLED = booleanPreferencesKey("enable_socks5")
         val SOCKS5_PORT = intPreferencesKey("socks5_port")
+        // 换行分隔保序（DNS 按顺序做故障转移）
+        val DNS_SERVERS = stringPreferencesKey("dns_servers")
 
         val UPDATE_INTERVAL = stringPreferencesKey("update_check_interval")
         val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check_at")
@@ -54,6 +59,7 @@ class SettingsRepository(private val context: Context) {
             autoStartOnBoot = p[Keys.AUTO_START] ?: false,
             enableSocks5 = p[Keys.SOCKS5_ENABLED] ?: false,
             socks5Port = p[Keys.SOCKS5_PORT] ?: 1080,
+            dnsServers = p[Keys.DNS_SERVERS].orEmpty().split('\n').filter { it.isNotBlank() },
             updateCheckInterval = p[Keys.UPDATE_INTERVAL] ?: "off",
             lastUpdateCheckAt = p[Keys.LAST_UPDATE_CHECK] ?: 0L,
             pendingUpdateVersion = p[Keys.PENDING_VERSION] ?: "",
@@ -75,6 +81,12 @@ class SettingsRepository(private val context: Context) {
         context.settingsDataStore.edit {
             it[Keys.SOCKS5_ENABLED] = enabled
             it[Keys.SOCKS5_PORT] = port.coerceIn(1024..65535)
+        }
+
+    suspend fun setDnsServers(servers: List<String>) =
+        context.settingsDataStore.edit {
+            val joined = servers.filter { it.isNotBlank() }.joinToString("\n")
+            if (joined.isEmpty()) it.remove(Keys.DNS_SERVERS) else it[Keys.DNS_SERVERS] = joined
         }
 
     suspend fun setUpdateInterval(mode: String) =

@@ -2,6 +2,8 @@ package com.easytier.android.ui.screens.settings
 
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,6 +61,8 @@ import com.easytier.android.ui.components.AppSnackbarHost
 import com.easytier.android.ui.components.ChoiceRow
 import com.easytier.android.ui.components.OssLicensesDialog
 import com.easytier.android.ui.components.SectionHeader
+import com.easytier.android.ui.components.StringListEditor
+import com.easytier.android.util.DnsServers
 import com.easytier.android.ui.components.SettingRow
 import com.easytier.android.ui.components.SwitchRow
 import android.net.Uri
@@ -100,6 +104,8 @@ class SettingsViewModel : ViewModel() {
 
     fun setSocks5(enabled: Boolean, port: Int) = launchIO { repo.setSocks5(enabled, port) }
 
+    fun setDnsServers(servers: List<String>) = launchIO { repo.setDnsServers(servers) }
+
     fun setVpnEnabled(enabled: Boolean) = launchIO { repo.setVpnEnabled(enabled) }
 
     fun setUpdateInterval(mode: String) = launchIO { repo.setUpdateInterval(mode) }
@@ -134,6 +140,7 @@ private val UPDATE_INTERVAL_OPTIONS = listOf(
     "off" to "关闭", "startup" to "每次启动", "daily" to "每天", "weekly" to "每周",
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen() {
     val vm: SettingsViewModel = viewModel()
@@ -207,6 +214,52 @@ fun SettingsScreen() {
                         checked = s.autoStartOnBoot,
                         onCheckedChange = { vm.setAutoStart(context, it) },
                     )
+                }
+            }
+
+            // 「DNS 上游」分组卡片：Magic DNS 转发普通域名查询的上游服务器（DoT/DoH）
+            SectionHeader("DNS 上游")
+            AppCard {
+                Column(Modifier.padding(vertical = 4.dp)) {
+                    StringListEditor(
+                        label = "上游 DNS 服务器",
+                        placeholder = "tls://dns.alidns.com",
+                        items = s.dnsServers,
+                        onChange = { next ->
+                            val valid = next.filter { DnsServers.isValid(it) }
+                            if (valid.size != next.size) {
+                                scope.launch {
+                                    snackbar.showSnackbar("已忽略无效地址，仅支持 udp tcp tls https 服务器")
+                                }
+                            }
+                            vm.setDnsServers(valid)
+                        },
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                    Text(
+                        "Magic DNS 转发普通域名查询的上游，按顺序故障转移；留空使用内置默认。" +
+                            "tls:// 即 DoT，https:// 即 DoH，修改后重启网络生效。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    // 预置快捷填入：点按即加入列表
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    ) {
+                        DnsServers.PRESETS.forEach { (url, label) ->
+                            val added = url in s.dnsServers
+                            TextButton(
+                                onClick = {
+                                    if (!added) vm.setDnsServers(s.dnsServers + url)
+                                },
+                                enabled = !added,
+                            ) {
+                                Text(if (added) "$label ✓" else label)
+                            }
+                        }
+                    }
                 }
             }
 

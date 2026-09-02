@@ -7,6 +7,9 @@ EasyTier 核心引擎（`libeasytier_android_jni.so`），不依赖 Tauri / WebV
 
 - 多网络配置管理：创建、编辑、启停，支持 TOML 导入 / 导出
 - 系统级 VPN（TUN）接入，可与 SOCKS5 代理模式独立开关
+- Magic DNS：默认开启，浏览器直接用「主机名.网络名」访问组网设备（如 `xtop.xlan`），
+  可在网络编辑器的高级设置里修改后缀或关闭；设置页可配置转发普通域名的上游
+  DNS（DoT / DoH），按顺序故障转移
 - 对等节点状态、速率与流量实时展示
 - 开机自启、深浅色主题跟随系统
 
@@ -29,6 +32,8 @@ EasyTier 核心引擎（`libeasytier_android_jni.so`），不依赖 Tauri / WebV
 ## JNI 库版本管理
 
 `.so` 构建后上传到本仓库的 Release（tag 以 `jni-` 开头，不会触发 APK 发布），CI 取其中最新的一份。
+构建时 `patches/*.patch` 会自动应用到上游源码（如 `0001-magic-dns-dns-forward-servers.patch`：
+Magic DNS 可配置上游转发服务器，支持 DoT/DoH）；上游改动后 patch 失效需同步更新。
 
 **更新方式（二选一）：**
 
