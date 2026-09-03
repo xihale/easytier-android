@@ -2,8 +2,6 @@ package com.easytier.android.ui.screens.settings
 
 import android.content.Intent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,6 +51,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.easytier.android.EasyTierApp
+import com.easytier.android.core.clash.ClashRouteGenerator
+import com.easytier.android.core.engine.InstanceState
 import com.easytier.android.core.vpn.BootCompletedReceiver
 import com.easytier.android.data.store.AppSettings
 import com.easytier.android.data.store.SettingsRepository
@@ -61,11 +61,11 @@ import com.easytier.android.ui.components.AppSnackbarHost
 import com.easytier.android.ui.components.ChoiceRow
 import com.easytier.android.ui.components.OssLicensesDialog
 import com.easytier.android.ui.components.SectionHeader
-import com.easytier.android.ui.components.StringListEditor
-import com.easytier.android.util.DnsServers
 import com.easytier.android.ui.components.SettingRow
 import com.easytier.android.ui.components.SwitchRow
 import android.net.Uri
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import com.easytier.android.data.update.UpdateCheckResult
 import com.easytier.android.ui.components.PillBadge
 import com.easytier.android.ui.icons.AppIcons
@@ -75,6 +75,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -91,6 +92,9 @@ class SettingsViewModel : ViewModel() {
             SharingStarted.Eagerly,
             null,
         )
+
+    /** 引擎运行状态：复制 Clash 路由时用于收集运行中实例的虚拟网段。 */
+    val engineStates = EasyTierApp.get().container.engine.states
 
     fun setTheme(mode: String) = launchIO { repo.setThemeMode(mode) }
 
@@ -140,14 +144,14 @@ private val UPDATE_INTERVAL_OPTIONS = listOf(
     "off" to "关闭", "startup" to "每次启动", "daily" to "每天", "weekly" to "每周",
 )
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(onOpenDns: () -> Unit = {}) {
     val vm: SettingsViewModel = viewModel()
     val settings by vm.settings.collectAsState()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showSocks5Dialog by remember { mutableStateOf(false) }
@@ -205,8 +209,29 @@ fun SettingsScreen() {
                                 )
                             },
                         )
+                        SettingRow(
+                            title = "复制 Clash 路由",
+                            subtitle = "把虚拟网网段导流到 SOCKS5 的配置片段",
+                            icon = AppIcons.ContentCopy,
+                            onClick = {
+                                scope.launch {
+                                    val running = vm.engineStates.value.values
+                                        .mapNotNull { it as? InstanceState.Running }
+                                        .map { it.info }
+                                    val saved = EasyTierApp.get().container.networksRepository
+                                        .networks.first().map { it.config }
+                                    val cidrs = ClashRouteGenerator.collectCidrs(running, saved)
+                                    clipboard.setText(
+                                        AnnotatedString(ClashRouteGenerator.generate(s.socks5Port, cidrs)),
+                                    )
+                                    snackbar.showSnackbar(
+                                        if (cidrs.isEmpty()) "已复制（未检测到网段，用默认网段）" else "已复制 ${cidrs.size} 条网段路由",
+                                    )
+                                }
+                            },
+                            trailing = { Chevron() },
+                        )
                     }
-                    
                     SwitchRow(
                         title = "开机自启",
                         subtitle = "设备开机后自动启动服务，拉起全部勾选的网络",
@@ -214,52 +239,13 @@ fun SettingsScreen() {
                         checked = s.autoStartOnBoot,
                         onCheckedChange = { vm.setAutoStart(context, it) },
                     )
-                }
-            }
-
-            // 「DNS 上游」分组卡片：Magic DNS 转发普通域名查询的上游服务器（DoT/DoH）
-            SectionHeader("DNS 上游")
-            AppCard {
-                Column(Modifier.padding(vertical = 4.dp)) {
-                    StringListEditor(
-                        label = "上游 DNS 服务器",
-                        placeholder = "tls://dns.alidns.com",
-                        items = s.dnsServers,
-                        onChange = { next ->
-                            val valid = next.filter { DnsServers.isValid(it) }
-                            if (valid.size != next.size) {
-                                scope.launch {
-                                    snackbar.showSnackbar("已忽略无效地址，仅支持 udp tcp tls https 服务器")
-                                }
-                            }
-                            vm.setDnsServers(valid)
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp),
+                    SettingRow(
+                        title = "DNS 上游",
+                        subtitle = "Magic DNS 转发普通域名查询，支持 DoT DoH",
+                        icon = AppIcons.Dns,
+                        onClick = onOpenDns,
+                        trailing = { Chevron() },
                     )
-                    Text(
-                        "Magic DNS 转发普通域名查询的上游，按顺序故障转移；留空使用内置默认。" +
-                            "tls:// 即 DoT，https:// 即 DoH，修改后重启网络生效。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                    // 预置快捷填入：点按即加入列表
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    ) {
-                        DnsServers.PRESETS.forEach { (url, label) ->
-                            val added = url in s.dnsServers
-                            TextButton(
-                                onClick = {
-                                    if (!added) vm.setDnsServers(s.dnsServers + url)
-                                },
-                                enabled = !added,
-                            ) {
-                                Text(if (added) "$label ✓" else label)
-                            }
-                        }
-                    }
                 }
             }
 
