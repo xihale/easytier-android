@@ -222,25 +222,24 @@ class EasyTierVpnService : VpnService() {
 
     override fun onRevoke() {
         stopVpn()
-        // 服务与网络解耦：VPN 被抢占只重置服务状态，核心实例继续运行
-        runCatching { EasyTierApp.get().container.vpnController.onTunDown() }
-            .onFailure { Log.w(TAG, "重置服务状态失败", it) }
+        // VPN 被挤掉即整体收摊：核心实例一起停，进程不留在后台空转、不再阻碍系统休眠
+        stopAllExternally()
         stopSelf()
     }
 
     /**
-     * TUN 建立失败（VPN 授权被收回 / 被其他 VPN 占用等）。此前只记日志就停止服务，
-     * 用户侧表现为「网络连上了但 VPN 没起来」且磁贴仍是绿色。这里重置服务状态
-     * （磁贴/首页回到未运行，下次开启即重试），并发一条可点击授权重试的通知。
+     * TUN 建立失败（VPN 授权被收回 / 被其他 VPN 占用等）。重置服务状态（磁贴/首页回到
+     * 未运行），停掉全部核心实例让进程尽快退场，并发一条可点击授权重试的通知
+     * （重试走 MainActivity 重新拉起勾选的网络，不依赖存活实例）。
      */
     private fun onEstablishFailed(cause: Throwable) {
-        runCatching { EasyTierApp.get().container.vpnController.onTunDown() }
-            .onFailure { Log.w(TAG, "重置服务状态失败", it) }
+        stopVpn()
+        stopAllExternally()
         postFailureNotification(cause)
         stopSelf()
     }
 
-    /** 通知栏停止：重置服务开关并停止全部核心实例。 */
+    /** 外部停止（通知栏「停止」/ VPN 被撤销 / TUN 建立失败）：重置服务开关并停全部核心实例。 */
     private fun stopAllExternally() {
         runCatching { EasyTierApp.get().container.vpnController.onStoppedExternally() }
             .onFailure { Log.w(TAG, "获取容器失败，跳过停止核心实例", it) }
