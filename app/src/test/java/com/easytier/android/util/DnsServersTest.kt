@@ -9,6 +9,7 @@ class DnsServersTest {
 
     @Test
     fun `accepts supported schemes with host and optional port`() {
+        assertTrue(DnsServers.isValid(DnsServers.DEFAULT_SERVER))
         assertTrue(DnsServers.isValid("tls://dns.alidns.com"))
         assertTrue(DnsServers.isValid("tls://dns.alidns.com:853"))
         assertTrue(DnsServers.isValid("https://doh.pub/dns-query"))

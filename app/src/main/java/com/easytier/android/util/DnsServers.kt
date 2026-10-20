@@ -11,6 +11,9 @@ object DnsServers {
 
     val SCHEMES = setOf("udp", "tcp", "tls", "https")
 
+    /** 默认上游：阿里公共 DoT。清空列表即回退核心内置默认（纯 UDP 223.5.5.5 等）。 */
+    const val DEFAULT_SERVER = "tls://dns.alidns.com"
+
     /** 与核心 parse_dns_forward_server 同口径的格式校验。 */
     fun isValid(raw: String): Boolean {
         val s = raw.trim()

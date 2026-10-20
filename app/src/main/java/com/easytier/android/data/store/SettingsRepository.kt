@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.easytier.android.data.update.ReleaseInfo
+import com.easytier.android.util.DnsServers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -21,8 +22,8 @@ data class AppSettings(
     val enableSocks5: Boolean = false,
     val socks5Port: Int = 1080,
     // Magic DNS 转发普通域名查询的上游服务器，支持 udp:// tcp:// tls://(DoT) https://(DoH)。
-    // 空 = 核心内置默认（Android 上为 223.5.5.5 等纯 UDP）
-    val dnsServers: List<String> = emptyList(),
+    // 默认阿里 DoT；显式清空 = 核心内置默认（223.5.5.5 等纯 UDP）
+    val dnsServers: List<String> = listOf(DnsServers.DEFAULT_SERVER),
     // 检测更新（默认关闭）。off | startup | daily | weekly
     val updateCheckInterval: String = "off",
     val lastUpdateCheckAt: Long = 0L,
@@ -59,7 +60,13 @@ class SettingsRepository(private val context: Context) {
             autoStartOnBoot = p[Keys.AUTO_START] ?: false,
             enableSocks5 = p[Keys.SOCKS5_ENABLED] ?: false,
             socks5Port = p[Keys.SOCKS5_PORT] ?: 1080,
-            dnsServers = p[Keys.DNS_SERVERS].orEmpty().split('\n').filter { it.isNotBlank() },
+            // 键缺失 = 用默认（阿里 DoT）；键存在但为空串 = 用户显式清空，用核心内置回退
+            dnsServers = p[Keys.DNS_SERVERS].let { raw ->
+                when (raw) {
+                    null -> listOf(DnsServers.DEFAULT_SERVER)
+                    else -> raw.split('\n').filter { it.isNotBlank() }
+                }
+            },
             updateCheckInterval = p[Keys.UPDATE_INTERVAL] ?: "off",
             lastUpdateCheckAt = p[Keys.LAST_UPDATE_CHECK] ?: 0L,
             pendingUpdateVersion = p[Keys.PENDING_VERSION] ?: "",
@@ -85,8 +92,8 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setDnsServers(servers: List<String>) =
         context.settingsDataStore.edit {
-            val joined = servers.filter { it.isNotBlank() }.joinToString("\n")
-            if (joined.isEmpty()) it.remove(Keys.DNS_SERVERS) else it[Keys.DNS_SERVERS] = joined
+            // 空列表也写键（空串）：区分「显式清空 = 核心内置回退」与「未设置 = 默认阿里 DoT」
+            it[Keys.DNS_SERVERS] = servers.filter { s -> s.isNotBlank() }.joinToString("\n")
         }
 
     suspend fun setUpdateInterval(mode: String) =

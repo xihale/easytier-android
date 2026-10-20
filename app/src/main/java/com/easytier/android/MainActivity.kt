@@ -40,6 +40,7 @@ import com.easytier.android.ui.icons.AppIcons
 import com.easytier.android.ui.nav.TopDestination
 import com.easytier.android.ui.screens.editor.NetworkEditorScreen
 import com.easytier.android.ui.screens.networks.NetworksScreen
+import com.easytier.android.ui.screens.settings.DnsSettingsScreen
 import com.easytier.android.ui.screens.settings.SettingsScreen
 import com.easytier.android.ui.screens.status.StatusScreen
 import com.easytier.android.ui.theme.EasyTierTheme
@@ -178,7 +179,10 @@ private fun EasyTierAppNavHost(container: AppContainer) {
                 StatusScreen(container = container)
             }
             composable("settings") {
-                SettingsScreen()
+                SettingsScreen(onOpenDns = { navController.navigate("settings/dns") })
+            }
+            composable("settings/dns") {
+                DnsSettingsScreen(onBack = { navController.popBackStack() })
             }
             composable("editor/{networkId}") { entry ->
                 // "new" 是新建哨兵值，转成 null；否则 get("new") 查不到导致空渲染（黑屏）
