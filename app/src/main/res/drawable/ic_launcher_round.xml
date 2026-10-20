@@ -4,13 +4,13 @@
     android:height="108dp"
     android:viewportWidth="1024"
     android:viewportHeight="1024">
-    <!-- 圆形背景 -->
+    <!-- 圆形背景，淡蓝容器色 -->
     <path
-        android:fillColor="#131313"
+        android:fillColor="#DEE4FF"
         android:pathData="M512,512m-512,0a512,512 0,1 1,1024 0a512,512 0,1 1,-1024 0" />
-    <!-- 中心圆点（淡紫色） -->
+    <!-- 中心圆点（品牌蓝） -->
     <path
-        android:fillColor="#BB86FC"
+        android:fillColor="#2F55D6"
         android:pathData="M512,512m-100,0a100,100 0,1 1,200 0a100,100 0,1 1,-200 0" />
     <!-- 外围弧线 1（青绿色） -->
     <path

@@ -4,7 +4,8 @@
     android:height="108dp"
     android:viewportWidth="1024"
     android:viewportHeight="1024">
+    <!-- 淡蓝容器色（同应用 PrimaryContainer） -->
     <path
-        android:fillColor="#FAFAFC"
+        android:fillColor="#DEE4FF"
         android:pathData="M0,0h1024v1024h-1024z" />
 </vector>
