@@ -66,6 +66,49 @@ class ClashRouteGeneratorTest {
     }
 
     @Test
+    fun `generate emits domain-suffix rules before ip-cidr`() {
+        val text = ClashRouteGenerator.generate(
+            1080,
+            listOf("10.147.0.0/24"),
+            listOf("et.net", "xlan"),
+        )
+        assertTrue(text.contains("- DOMAIN-SUFFIX,xlan,${ClashRouteGenerator.PROXY_NAME}"))
+        assertTrue(text.contains("- DOMAIN-SUFFIX,et.net,${ClashRouteGenerator.PROXY_NAME}"))
+        // 域名规则在网段规则之前，且不擅自加 no-resolve（域名必须交给代理解析）
+        assertTrue(text.indexOf("DOMAIN-SUFFIX,et.net") < text.indexOf("IP-CIDR,10.147.0.0/24"))
+        assertTrue(!text.contains("DOMAIN-SUFFIX,et.net,${ClashRouteGenerator.PROXY_NAME},no-resolve"))
+    }
+
+    @Test
+    fun `generate without zones emits only ip-cidr`() {
+        val text = ClashRouteGenerator.generate(1080, listOf("10.147.0.0/24"))
+        assertTrue(!text.contains("DOMAIN-SUFFIX"))
+    }
+
+    @Test
+    fun `collectDnsZones takes magic dns configs and respects explicit zone`() {
+        val zones = ClashRouteGenerator.collectDnsZones(
+            listOf(
+                NetworkConfig(networkName = "mesh"),                    // 默认后缀 = 网络名
+                NetworkConfig(networkName = "home", tldDnsZone = "xlan"),
+                NetworkConfig(networkName = "off", enableMagicDns = false),
+                NetworkConfig(networkName = "dup", tldDnsZone = "xlan"), // 去重
+                NetworkConfig(networkName = "bad name", tldDnsZone = ".."), // 空白后缀回退网络名，空格转连字符
+            ),
+        )
+        assertEquals(listOf("bad-name", "mesh", "xlan"), zones)
+    }
+
+    @Test
+    fun `collectDnsZones is empty when magic dns disabled everywhere`() {
+        assertTrue(
+            ClashRouteGenerator.collectDnsZones(
+                listOf(NetworkConfig(networkName = "a", enableMagicDns = false)),
+            ).isEmpty(),
+        )
+    }
+
+    @Test
     fun `normalizeCidr handles host bits and mapped syntax`() {
         assertEquals("10.147.0.0/24", ClashRouteGenerator.normalizeCidr("10.147.0.3/24"))
         assertEquals("172.16.1.0/24", ClashRouteGenerator.normalizeCidr("172.16.1.77/24 -> 10.0.0.0/24"))

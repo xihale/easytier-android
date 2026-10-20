@@ -6,7 +6,8 @@ EasyTier 核心引擎（`libeasytier_android_jni.so`），不依赖 Tauri / WebV
 ## 功能
 
 - 多网络配置管理：创建、编辑、启停，支持 TOML 导入 / 导出
-- 系统级 VPN（TUN）接入，可与 SOCKS5 代理模式独立开关
+- 系统级 VPN（TUN）接入，可与 SOCKS5 代理模式独立开关；SOCKS5 可一键生成 Clash
+  路由片段（虚拟网段 + Magic DNS 后缀）
 - Magic DNS：默认开启，浏览器直接用「主机名.网络名」访问组网设备（如 `xtop.xlan`），
   可在网络编辑器的高级设置里修改后缀或关闭；上游 DNS 独立页面配置（默认阿里 DoT，
   支持 DoT / DoH），按顺序故障转移

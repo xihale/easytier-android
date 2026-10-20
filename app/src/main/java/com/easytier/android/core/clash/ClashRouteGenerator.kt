@@ -1,5 +1,6 @@
 package com.easytier.android.core.clash
 
+import com.easytier.android.core.toml.TomlGenerator
 import com.easytier.android.data.model.NetworkConfig
 import com.easytier.android.data.model.NetworkInstanceRunningInfo
 
@@ -51,6 +52,17 @@ object ClashRouteGenerator {
     }
 
     /**
+     * 收集 Magic DNS 后缀：只取开启 Magic DNS 的已保存配置，后缀规则与
+     * [TomlGenerator.effectiveDnsZone] 完全一致（显式 tld_dns_zone 优先，否则网络名）。
+     * 每个网络的「主机名.后缀」都要单独导流，多网络时后缀可能各不相同。
+     */
+    fun collectDnsZones(saved: List<NetworkConfig>): List<String> =
+        saved.filter { it.enableMagicDns }
+            .map { TomlGenerator.effectiveDnsZone(it) }
+            .distinct()
+            .sorted()
+
+    /**
      * 归一化 CIDR：主机位归零（"10.147.0.3/24" → "10.147.0.0/24"），
      * 容忍 "cidr->mapped" 映射写法（取箭头前网段）；非法输入返回 null。
      */
@@ -64,12 +76,18 @@ object ClashRouteGenerator {
         return "${toDotted(addr and mask)}/$len"
     }
 
-    /** 生成可合并进 Clash 配置的 proxies + rules 片段。 */
-    fun generate(port: Int, cidrs: List<String>): String {
+    /**
+     * 生成可合并进 Clash 配置的 proxies + rules 片段。
+     *
+     * [dnsZones] 为各网络的 Magic DNS 后缀（如 "xlan"），生成 DOMAIN-SUFFIX 规则：
+     * 只发 IP-CIDR 时，「主机名.后缀」在 Clash 侧会先被自己的 DNS 解析、按公网地址
+     * 走默认策略，导致 Magic DNS 的主机名访问不到虚拟网。
+     */
+    fun generate(port: Int, cidrs: List<String>, dnsZones: List<String> = emptyList()): String {
         val effective = cidrs.ifEmpty { listOf(DEFAULT_VIRTUAL_CIDR) }
         return buildString {
             appendLine("# EasyTier → Clash 路由片段（EasyTier Android 生成）")
-            appendLine("# 把下列虚拟网段的流量导流到 EasyTier SOCKS5（本机监听端口 $port）")
+            appendLine("# 把下列虚拟网网段与 Magic DNS 后缀导流到 EasyTier SOCKS5（本机监听端口 $port）")
             appendLine("# Clash 不在本机运行时，把 server 的 127.0.0.1 改为本机局域网 IP")
             appendLine()
             appendLine("proxies:")
@@ -80,6 +98,7 @@ object ClashRouteGenerator {
             appendLine("    udp: true")
             appendLine()
             appendLine("rules:")
+            dnsZones.forEach { appendLine("  - DOMAIN-SUFFIX,$it,$PROXY_NAME") }
             if (cidrs.isEmpty()) {
                 appendLine("  # 未检测到虚拟网段，使用 EasyTier 默认网段")
             }

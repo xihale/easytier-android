@@ -211,7 +211,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                         )
                         SettingRow(
                             title = "复制 Clash 路由",
-                            subtitle = "把虚拟网网段导流到 SOCKS5 的配置片段",
+                            subtitle = "把虚拟网网段与 Magic DNS 后缀导流到 SOCKS5",
                             icon = AppIcons.ContentCopy,
                             onClick = {
                                 scope.launch {
@@ -221,12 +221,17 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                                     val saved = EasyTierApp.get().container.networksRepository
                                         .networks.first().map { it.config }
                                     val cidrs = ClashRouteGenerator.collectCidrs(running, saved)
+                                    val zones = ClashRouteGenerator.collectDnsZones(saved)
                                     clipboard.setText(
-                                        AnnotatedString(ClashRouteGenerator.generate(s.socks5Port, cidrs)),
+                                        AnnotatedString(
+                                            ClashRouteGenerator.generate(s.socks5Port, cidrs, zones),
+                                        ),
                                     )
-                                    snackbar.showSnackbar(
-                                        if (cidrs.isEmpty()) "已复制（未检测到网段，用默认网段）" else "已复制 ${cidrs.size} 条网段路由",
-                                    )
+                                    val summary = buildList {
+                                        if (zones.isNotEmpty()) add("${zones.size} 个 DNS 后缀")
+                                        add(if (cidrs.isEmpty()) "默认网段" else "${cidrs.size} 条网段")
+                                    }.joinToString("、")
+                                    snackbar.showSnackbar("已复制 $summary 路由")
                                 }
                             },
                             trailing = { Chevron() },
