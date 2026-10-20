@@ -41,6 +41,17 @@ val appVersion: Pair<String, Int> = run {
     }
 }
 
+// 正式签名必须从环境变量提供；缺失时 release 构建直接失败，不再回退 debug 签名。
+// debug 签名包与正式包签名不同，会被系统视为另一个发布者，后续无法覆盖安装。
+val signingEnvVars = listOf(
+    "SIGNING_KEYSTORE_FILE",
+    "SIGNING_KEYSTORE_PASSWORD",
+    "SIGNING_KEY_ALIAS",
+    "SIGNING_KEY_PASSWORD",
+)
+val missingSigningEnv = signingEnvVars.filter { System.getenv(it).isNullOrBlank() }
+val hasReleaseSigning = missingSigningEnv.isEmpty()
+
 android {
     namespace = "com.easytier.android"
     compileSdk = 36
@@ -59,13 +70,14 @@ android {
         }
     }
 
-    // 正式签名从环境变量读取（供 CI 使用）；本地未设置时回退 debug 签名便于安装调试
-    val releaseStoreFile = System.getenv("SIGNING_KEYSTORE_FILE")
-    val hasReleaseSigning = !releaseStoreFile.isNullOrBlank()
+    // 正式签名只在环境变量齐全时创建；缺失时产物无签名，由下方 taskGraph 校验直接报错
     if (hasReleaseSigning) {
         signingConfigs {
             create("release") {
-                storeFile = file(releaseStoreFile!!)
+                storeFile = file(System.getenv("SIGNING_KEYSTORE_FILE"))
+                check(storeFile!!.exists()) {
+                    "签名 keystore 不存在：${storeFile!!.absolutePath}（SIGNING_KEYSTORE_FILE）"
+                }
                 storePassword = System.getenv("SIGNING_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("SIGNING_KEY_ALIAS")
                 keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
@@ -77,11 +89,11 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // 未配置签名时产物不带签名，由下方 taskGraph 校验直接报错
             signingConfig = if (hasReleaseSigning) {
                 signingConfigs.getByName("release")
             } else {
-                // 本地开发先用 debug 签名便于安装调试；CI 配置 Secrets 后走上面分支
-                signingConfigs.getByName("debug")
+                null
             }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -112,6 +124,21 @@ android {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
         // 压缩 .so（默认 Stored 直读），APK 减 ~1/3；安装后解压到本地，运行时无差异
         jniLibs.useLegacyPackaging = true
+    }
+}
+
+// release 变体缺少签名环境变量时直接失败，避免静默产出 debug 签名/无签名包
+gradle.taskGraph.whenReady {
+    if (hasReleaseSigning) return@whenReady
+    val releaseTask = allTasks.firstOrNull { task ->
+        task.project == project && task.name.contains("Release") &&
+            listOf("assemble", "bundle", "package", "sign").any { task.name.startsWith(it) }
+    }
+    if (releaseTask != null) {
+        throw GradleException(
+            "缺少签名环境变量：${missingSigningEnv.joinToString("、")}。" +
+                "release 构建不再回退 debug 签名，请按 README「发布签名」配置后重试。",
+        )
     }
 }
 

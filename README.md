@@ -57,7 +57,8 @@ gh release upload jni-<版本> /tmp/libeasytier_android_jni-arm64-v8a.so \
 
 ## 发布签名
 
-CI 在 tag（`v*`）推送时自动构建并发布 Release APK。签名通过仓库 Secrets 配置：
+CI 在 tag（`v*`）推送时自动构建并发布 Release APK。签名 Secrets 配置在 GitHub
+Actions 的 `release` 环境（Environment）中：
 
 | Secret | 说明 |
 | --- | --- |
@@ -66,7 +67,21 @@ CI 在 tag（`v*`）推送时自动构建并发布 Release APK。签名通过仓
 | `SIGNING_KEY_ALIAS` | key 别名 |
 | `SIGNING_KEY_PASSWORD` | key 密码 |
 
-未配置 Secrets 时回退为 debug 签名。
+**四个 Secrets 缺一不可**：缺失时 workflow 在解码步骤直接失败，Gradle 侧
+`assembleRelease`/`bundleRelease` 也会报错，不会回退 debug 签名。
+
+本地构建 release 包时通过环境变量提供同样的四项（`SIGNING_KEYSTORE_FILE` 为 keystore
+路径，本地无需 Base64），例如：
+
+```bash
+export SIGNING_KEYSTORE_FILE="$HOME/.ssh/android/easytier-release.jks"
+export SIGNING_KEYSTORE_PASSWORD=...
+export SIGNING_KEY_ALIAS=easytier
+export SIGNING_KEY_PASSWORD=...
+./gradlew :app:assembleRelease
+```
+
+日常调试用 `assembleDebug` 即可，不受影响。
 
 发布 APK Release 时，notes 请保留一句许可声明（LGPLv3 §4a 要求随副本附显著声明，应用内
 「设置 → 关于 → 开源许可」已内置全文）：

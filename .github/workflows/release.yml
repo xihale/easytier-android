@@ -7,6 +7,8 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # 签名 Secrets 存放在 release 环境，便于后续加保护规则
+    environment: release
     permissions:
       contents: write
     steps:
@@ -27,23 +29,28 @@ jobs:
       - name: Build EasyTier JNI .so from upstream source
         uses: ./.github/actions/fetch-jni
 
-      - name: Decode signing keystore
-        id: keystore
+      - name: Check and decode signing keystore
         env:
           SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
-          if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
-            echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::未配置签名 Secrets，将回退 debug 签名"
+          missing=()
+          for name in SIGNING_KEYSTORE_BASE64 SIGNING_KEYSTORE_PASSWORD \
+                      SIGNING_KEY_ALIAS SIGNING_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then missing+=("$name"); fi
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::缺少签名 Secrets：${missing[*]}；release 构建不允许回退 debug 签名"
+            exit 1
           fi
+          echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "keystore 已写入 $RUNNER_TEMP/release.keystore"
 
       - name: Build release APK
         env:
-          # 未配置 Secrets 时留空，Gradle 侧按缺失处理并回退 debug 签名
-          SIGNING_KEYSTORE_FILE: ${{ steps.keystore.outputs.present == 'true' && format('{0}/release.keystore', runner.temp) || '' }}
+          SIGNING_KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
           SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
