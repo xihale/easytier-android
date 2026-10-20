@@ -94,6 +94,20 @@ object AppIcons {
         )
     }
     
+    val Check: ImageVector by lazy {
+        icon(
+            "Check",
+            "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
+        )
+    }
+
+    val Close: ImageVector by lazy {
+        icon(
+            "Close",
+            "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
+        )
+    }
+
     val ContentCopy: ImageVector by lazy {
         icon(
             "ContentCopy",
@@ -115,6 +129,13 @@ object AppIcons {
         )
     }
     
+    val Dns: ImageVector by lazy {
+        icon(
+            "Dns",
+            "M20 13H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1v-6c0-.55-.45-1-1-1zM7 19c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM20 3H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1V4c0-.55-.45-1-1-1zM7 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z",
+        )
+    }
+
     val Download: ImageVector by lazy {
         icon(
             "Download",
