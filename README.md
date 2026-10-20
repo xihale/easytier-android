@@ -83,6 +83,11 @@ export SIGNING_KEY_PASSWORD=...
 
 日常调试用 `assembleDebug` 即可，不受影响。
 
+本机已用 direnv 自动加载：`.envrc` 会在进入仓库时 `source` 仓库外的
+`~/.config/easytier/android-release.env`（首次需 `direnv allow`），所以 `assembleRelease`
+无需手动 export；变量文件变更也会触发重新加载。Android Studio 等不经 shell 的启动方式
+需在 IDE 的 Run Configuration 或系统环境中提供同样四个变量。
+
 发布 APK Release 时，notes 请保留一句许可声明（LGPLv3 §4a 要求随副本附显著声明，应用内
 「设置 → 关于 → 开源许可」已内置全文）：
 
