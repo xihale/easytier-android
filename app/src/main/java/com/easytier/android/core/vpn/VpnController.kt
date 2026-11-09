@@ -138,12 +138,15 @@ class VpnController(
         val effective = network.copy(config = config)
         val name = config.networkName
         // 多实例端口避让：监听端口与 SOCKS5 端口被其他运行实例占用时改用空闲端口，
-        // 否则第二个网络会因 Address already in use 启动失败
-        val usedPorts = runningConfigs.values
+        // 否则第二个网络会因 Address already in use 启动失败。
+        // 注意：必须排除自身（it != name），否则重启实例或同步配置时会把自己占用的端口误判为冲突，
+        // 导致每次重启 socks5Port 自增 +1、监听端口自增 +10 发生端口漂移。
+        val otherRunningConfigs = runningConfigs.filterKeys { it != name }.values
+        val usedPorts = otherRunningConfigs
             .flatMap { it.listenerUrls }
             .mapNotNull { it.substringAfterLast(':').toIntOrNull() }
             .toMutableSet()
-        runningConfigs.values.forEach {
+        otherRunningConfigs.forEach {
             if (it.enableSocks5 == true) it.socks5Port?.let { p -> usedPorts.add(p) }
         }
         val listeners = if (config.listenerUrls.any {
