@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -23,10 +24,12 @@ import com.easytier.android.R
  * 职责：
  * 1. 提供常驻前台通知，提升进程优先级为 FOREGROUND_SERVICE (oom_adj <= 100)，
  *    防止系统（如 ColorOS、MIUI、HyperOS 等）将无 TUN 的后台进程冻结或剥夺网络能力。
- * 2. 避免持有 WifiManager.MulticastLock，使手机 Wi-Fi 芯片在息屏时能保持 DTIM 低功耗节能休眠。
+ * 2. 持有 WiFi MulticastLock，保证局域网 UDP 发现与 UPnP 在无 TUN 模式下正常工作。
  * 3. 提供通知栏快捷「停止」操作。
  */
 class EasyTierForegroundService : Service() {
+
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -59,12 +62,37 @@ class EasyTierForegroundService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
+        acquireMulticastLock()
         return START_STICKY
+    }
+
+    private fun acquireMulticastLock() {
+        if (multicastLock?.isHeld == true) return
+        val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
+        runCatching {
+            wifi.createMulticastLock("easytier_fg").apply {
+                setReferenceCounted(false)
+                acquire()
+                multicastLock = this
+            }
+            Log.i(TAG, "已获取 WiFi multicast lock")
+        }.onFailure { Log.w(TAG, "获取 multicast lock 失败: ${it.message}") }
+    }
+
+    private fun releaseMulticastLock() {
+        val lock = multicastLock ?: return
+        multicastLock = null
+        runCatching { if (lock.isHeld) lock.release() }
     }
 
     private fun stopAllExternally() {
         runCatching { EasyTierApp.get().container.vpnController.onStoppedExternally() }
             .onFailure { Log.w(TAG, "获取容器失败，跳过停止核心实例", it) }
+    }
+
+    override fun onDestroy() {
+        releaseMulticastLock()
+        super.onDestroy()
     }
 
     private fun createNotificationChannel() {
