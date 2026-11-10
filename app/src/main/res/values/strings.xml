@@ -16,6 +16,7 @@
     <string name="common_import">导入</string>
     <string name="common_copy">复制</string>
     <string name="common_copied">已复制</string>
+    <string name="common_turn_on">去开启</string>
     <string name="common_details">详情</string>
     <string name="common_collapse">收起</string>
     <string name="common_copy_ip">复制 IP 地址</string>
@@ -206,6 +207,9 @@
     <string name="settings_socks5">SOCKS5 代理</string>
     <string name="settings_socks5_port">SOCKS5 端口</string>
     <string name="settings_copy_clash">复制 Clash 路由</string>
+    <string name="settings_clash_help">Clash 对接帮助</string>
+    <string name="settings_battery_title">需要后台运行权限</string>
+    <string name="settings_battery_body">关闭系统 VPN 后，SOCKS5 代理依赖应用在后台常驻。\n\n请允许「忽略电池优化」以免连接中断；部分系统（小米、OPPO、vivo 等）还需在应用信息中开启自启动。</string>
     <string name="settings_start_on_boot">开机自启</string>
     <string name="settings_dns_upstream">DNS 上游</string>
     <string name="settings_theme">主题</string>
@@ -236,6 +240,43 @@
     <string name="clash_summary_default">默认网段</string>
     <string name="clash_copied">已复制 %1$s 路由</string>
     <string name="settings_auto_check_dialog_title">自动检查更新</string>
+
+    <!-- Clash 对接帮助页 -->
+    <string name="clash_help_title">Clash 对接帮助</string>
+    <string name="clash_help_section_import">① 导入路由片段</string>
+    <string name="clash_help_import_intro">将虚拟网段与 Magic DNS 后缀分流至本机 EasyTier SOCKS5。以下片段按当前配置实时生成，也可在「设置 → 复制 Clash 路由」获取。</string>
+    <string name="clash_help_import_step1">在 FlClash 中进入「配置」→ 选中当前配置 →「覆写」→「添加覆写」</string>
+    <string name="clash_help_import_step2">类型选「脚本」或「YAML」，粘贴下方片段并保存</string>
+    <string name="clash_help_import_step3">确保 rules 排在 MATCH 等兜底规则之前，保存并重载配置生效</string>
+    <string name="clash_help_import_step4">在 FlClash 连接列表里确认虚拟网请求走 EasyTier 节点</string>
+    <string name="clash_help_copied_snippet">已复制路由片段</string>
+    <string name="clash_help_section_loop">② 防止流量回环</string>
+    <string name="clash_help_loop_intro">EasyTier 的底层通信（打洞、STUN、中继）一旦被 FlClash 代理，会导致 P2P 打洞失败、连接退化甚至超时断连。</string>
+    <string name="clash_help_loop_plan_a_label">方案 A（推荐）</string>
+    <string name="clash_help_loop_plan_a">进入 FlClash「设置」→「分应用代理（访问控制）」，把 EasyTier 加入排除名单，让底层流量直连出网。</string>
+    <string name="clash_help_loop_plan_b_label">方案 B</string>
+    <string name="clash_help_loop_plan_b">在 rules 最顶部为各节点端点添加 DIRECT 规则。以下按当前网络配置生成：</string>
+    <string name="clash_help_copied_rules">已复制直连规则</string>
+    <string name="clash_help_loop_note">注意：底层端点走代理会让 P2P 打洞失效，务必保证底层流量直连。</string>
+    <string name="clash_help_section_background">③ 后台运行权限</string>
+    <string name="clash_help_bg_intro">关闭系统 VPN 后，应用只靠前台服务在后台运行。未加入电池优化白名单时，进程易被系统回收，SOCKS5 入口随之中断（Clash 报 connection refused）。</string>
+    <string name="clash_help_battery_title">电池优化白名单</string>
+    <string name="clash_help_battery_ok">已在白名单内，可后台常驻</string>
+    <string name="clash_help_battery_missing">未加入白名单，易被系统回收</string>
+    <string name="clash_help_battery_badge">已允许</string>
+    <string name="clash_help_autostart_title">自启动 / 省电策略</string>
+    <string name="clash_help_autostart_hint">部分系统需在系统设置中允许自启动与无限制后台</string>
+    <string name="clash_help_app_info">应用信息</string>
+    <string name="clash_help_bg_note">关闭 VPN 模式后系统 VPN 槽位空出，其他 VPN 应用（如 FlClash）可正常接管；EasyTier 继续以仅引擎模式提供 SOCKS5。</string>
+    <string name="clash_help_section_faq">④ 常见问题排查</string>
+    <string name="clash_help_faq_deadline_title">dial EasyTier … context deadline exceeded</string>
+    <string name="clash_help_faq_deadline_body">请求已进入本机 SOCKS5，但没能送达目标：\n1. 在状态页确认节点在线且已连上对端；\n2. 确认底层端点未被代理（见「防止流量回环」）；\n3. 确认 FlClash 规则里的端口与本应用当前 SOCKS5 端口一致。</string>
+    <string name="clash_help_faq_refused_title">connection refused</string>
+    <string name="clash_help_faq_refused_body">本机 SOCKS5 端口没有在监听：\n1. 确认 SOCKS5 代理开关已开启；\n2. 确认应用在后台正常运行，没有被系统查杀（见「后台运行权限」）；\n3. 若端口发生过冲突避让，请重新复制最新路由片段。</string>
+    <string name="clash_help_faq_vpn_lost_title">开启 FlClash 后本应用 VPN 掉线</string>
+    <string name="clash_help_faq_vpn_lost_body">Android 只允许一个系统 VPN 运行，FlClash 启动会接管 VPN 槽位；TUN 被撤销后 EasyTier 的实例也会一并停止（通知栏会提示）。\n要两者共存：在设置里关闭「VPN 模式」，改用 SOCKS5 + FlClash 组合，并按「后台运行权限」加入白名单。</string>
+    <string name="clash_help_faq_unreachable_title">虚拟网完全不通</string>
+    <string name="clash_help_faq_unreachable_body">1. 先关掉 FlClash，直接访问虚拟 IP，排除节点本身的连通性问题；\n2. 再开 FlClash 验证路由规则；\n3. 仍不通时检查是否已把 EasyTier 加入分应用排除名单。</string>
 
     <!-- DNS 上游页 -->
     <string name="dns_title">DNS 上游</string>

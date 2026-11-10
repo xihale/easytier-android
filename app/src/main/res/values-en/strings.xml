@@ -15,6 +15,7 @@
     <string name="common_import">Import</string>
     <string name="common_copy">Copy</string>
     <string name="common_copied">Copied</string>
+    <string name="common_turn_on">Turn on</string>
     <string name="common_details">Details</string>
     <string name="common_collapse">Collapse</string>
     <string name="common_copy_ip">Copy IP address</string>
@@ -205,6 +206,9 @@
     <string name="settings_socks5">SOCKS5 proxy</string>
     <string name="settings_socks5_port">SOCKS5 port</string>
     <string name="settings_copy_clash">Copy Clash routes</string>
+    <string name="settings_clash_help">Clash integration help</string>
+    <string name="settings_battery_title">Background permission needed</string>
+    <string name="settings_battery_body">With the system VPN off, the SOCKS5 proxy depends on the app staying in the background.\n\nAllow "ignore battery optimizations" so the proxy is not cut off. Some ROMs (Xiaomi, OPPO, vivo, etc.) also need autostart enabled in App info.</string>
     <string name="settings_start_on_boot">Start on boot</string>
     <string name="settings_dns_upstream">DNS upstream</string>
     <string name="settings_theme">Theme</string>
@@ -235,6 +239,43 @@
     <string name="clash_summary_default">default subnet</string>
     <string name="clash_copied">Copied %1$s routes</string>
     <string name="settings_auto_check_dialog_title">Auto-check updates</string>
+
+    <!-- Clash integration help -->
+    <string name="clash_help_title">Clash integration help</string>
+    <string name="clash_help_section_import">1. Import the routing snippet</string>
+    <string name="clash_help_import_intro">Routes virtual subnets and Magic DNS suffixes to this device\'s EasyTier SOCKS5. The snippet is generated from your current config; you can also get it from Settings → Copy Clash routes.</string>
+    <string name="clash_help_import_step1">In FlClash open Config → select your config → Override → Add override</string>
+    <string name="clash_help_import_step2">Pick the Script or YAML type, paste the snippet below, then save</string>
+    <string name="clash_help_import_step3">Make sure these rules come before fallback rules such as MATCH, then save and reload the config</string>
+    <string name="clash_help_import_step4">Check the FlClash connection list: virtual network requests should go through the EasyTier node</string>
+    <string name="clash_help_copied_snippet">Routing snippet copied</string>
+    <string name="clash_help_section_loop">2. Avoid traffic loops</string>
+    <string name="clash_help_loop_intro">If FlClash proxies EasyTier\'s underlying traffic (hole punching, STUN, relays), P2P punching fails, connections degrade or time out.</string>
+    <string name="clash_help_loop_plan_a_label">Option A (recommended)</string>
+    <string name="clash_help_loop_plan_a">In FlClash open Settings → Per-app proxy (access control) and exclude EasyTier, so its underlying traffic goes out directly.</string>
+    <string name="clash_help_loop_plan_b_label">Option B</string>
+    <string name="clash_help_loop_plan_b">Add DIRECT rules for every node endpoint at the top of rules. Generated from your current networks:</string>
+    <string name="clash_help_copied_rules">Direct rules copied</string>
+    <string name="clash_help_loop_note">Note: proxying the underlying endpoints breaks P2P hole punching, so keep that traffic direct.</string>
+    <string name="clash_help_section_background">3. Background permission</string>
+    <string name="clash_help_bg_intro">With the system VPN off, the app survives only on its foreground service. Without battery-optimization whitelisting the process is often killed, which drops the SOCKS5 endpoint (Clash then reports connection refused).</string>
+    <string name="clash_help_battery_title">Battery optimization whitelist</string>
+    <string name="clash_help_battery_ok">Whitelisted; can stay in the background</string>
+    <string name="clash_help_battery_missing">Not whitelisted; likely to be killed</string>
+    <string name="clash_help_battery_badge">Allowed</string>
+    <string name="clash_help_autostart_title">Autostart / power saving</string>
+    <string name="clash_help_autostart_hint">Some ROMs require allowing autostart and unrestricted background in system settings</string>
+    <string name="clash_help_app_info">App info</string>
+    <string name="clash_help_bg_note">With VPN mode off the system VPN slot stays free for other apps (such as FlClash), while EasyTier keeps serving SOCKS5 in engine-only mode.</string>
+    <string name="clash_help_section_faq">4. Troubleshooting</string>
+    <string name="clash_help_faq_deadline_title">dial EasyTier … context deadline exceeded</string>
+    <string name="clash_help_faq_deadline_body">The request reached the local SOCKS5 but never reached its target:\n1. On the Status page, confirm the node is online and connected to peers;\n2. Confirm the underlying endpoints are not proxied (see \"Avoid traffic loops\");\n3. Confirm the port in your FlClash rules matches the current SOCKS5 port.</string>
+    <string name="clash_help_faq_refused_title">connection refused</string>
+    <string name="clash_help_faq_refused_body">The local SOCKS5 port is not listening:\n1. Confirm the SOCKS5 proxy switch is on;\n2. Confirm the app is running in the background and was not killed (see \"Background permission\");\n3. If the port was moved to avoid a conflict, copy the latest routing snippet again.</string>
+    <string name="clash_help_faq_vpn_lost_title">This app\'s VPN drops after FlClash starts</string>
+    <string name="clash_help_faq_vpn_lost_body">Android allows only one system VPN, and starting FlClash takes the VPN slot. Once the TUN is revoked, EasyTier stops its instances too (the notification reports it).\nTo run both: turn off \"VPN mode\" in Settings and use SOCKS5 with FlClash instead, then whitelist the app as described in \"Background permission\".</string>
+    <string name="clash_help_faq_unreachable_title">The virtual network is completely unreachable</string>
+    <string name="clash_help_faq_unreachable_body">1. Stop FlClash first and reach the virtual IP directly, to rule out node connectivity;\n2. Start FlClash again and verify the routing rules;\n3. If it still fails, check that EasyTier is in your per-app exclusion list.</string>
 
     <!-- DNS upstream -->
     <string name="dns_title">DNS upstream</string>

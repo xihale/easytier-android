@@ -1,6 +1,8 @@
 package com.easytier.android.ui.screens.settings
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
@@ -69,6 +71,7 @@ import com.easytier.android.data.update.ReleaseInfo
 import com.easytier.android.data.update.UpdateCheckResult
 import com.easytier.android.ui.components.PillBadge
 import com.easytier.android.ui.icons.AppIcons
+import com.easytier.android.util.BackgroundPermission
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.isSystemInDarkTheme
 import kotlinx.coroutines.channels.Channel
@@ -173,7 +176,7 @@ private val UPDATE_INTERVAL_OPTIONS = listOf(
 )
 
 @Composable
-fun SettingsScreen(onOpenDns: () -> Unit = {}) {
+fun SettingsScreen(onOpenDns: () -> Unit = {}, onOpenClashHelp: () -> Unit = {}) {
     val vm: SettingsViewModel = viewModel()
     val settings by vm.settings.collectAsState()
     val context = LocalContext.current
@@ -189,6 +192,18 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
     var updateDialogInfo by remember { mutableStateOf<ReleaseInfo?>(null) }
     // 检查按钮的即时状态（用于显示检查中菊叶）
     val checkState by vm.updateCheckResult.collectAsState()
+
+    // 关闭 VPN（改由仅引擎 / SOCKS5 模式提供代理）前的后台权限检查：
+    // 没有系统性 VPN 保护后，进程完全靠前台服务常驻，未加白名单很容易被回收
+    var showBatteryDialog by remember { mutableStateOf(false) }
+    val batteryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        // 授权返回：已加入白名单才真正关闭 VPN
+        if (BackgroundPermission.isIgnoringBatteryOptimizations(context)) {
+            vm.setVpnEnabled(false)
+        }
+    }
 
     val s = settings ?: run {
         // 首帧设置未加载时给加载指示，避免整页空白
@@ -213,7 +228,14 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                         title = stringResource(R.string.settings_vpn_mode),
                         icon = AppIcons.Shield,
                         checked = s.enableVpn,
-                        onCheckedChange = { vm.setVpnEnabled(it) },
+                        onCheckedChange = { want ->
+                            // 关掉 VPN 意味着失去系统 VPN 保护：必须先有后台运行权限
+                            if (want || BackgroundPermission.isIgnoringBatteryOptimizations(context)) {
+                                vm.setVpnEnabled(want)
+                            } else {
+                                showBatteryDialog = true
+                            }
+                        },
                     )
                     SwitchRow(
                         title = stringResource(R.string.settings_socks5),
@@ -279,6 +301,13 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                         title = stringResource(R.string.settings_dns_upstream),
                         icon = AppIcons.Dns,
                         onClick = onOpenDns,
+                        trailing = { Chevron() },
+                    )
+                    // Clash 对接帮助：常显（不依赖 SOCKS5 开关），导入片段/防回环/后台保活/排查都在里
+                    SettingRow(
+                        title = stringResource(R.string.settings_clash_help),
+                        icon = AppIcons.Description,
+                        onClick = onOpenClashHelp,
                         trailing = { Chevron() },
                     )
                     ChoiceRow(
@@ -444,6 +473,27 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
     }
     if (showLicenseDialog) {
         OssLicensesDialog(onDismiss = { showLicenseDialog = false })
+    }
+    // 仅引擎 / SOCKS5 模式的前置条件：后台运行权限（电池优化白名单 + 厂商自启动）
+    if (showBatteryDialog) {
+        AlertDialog(
+            onDismissRequest = { showBatteryDialog = false },
+            title = { Text(stringResource(R.string.settings_battery_title)) },
+            text = { Text(stringResource(R.string.settings_battery_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBatteryDialog = false
+                    val intent = BackgroundPermission.requestIgnoreIntent(context)
+                        ?: BackgroundPermission.appDetailsIntent(context)
+                    batteryLauncher.launch(intent)
+                }) { Text(stringResource(R.string.common_turn_on)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatteryDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
     }
     if (showSocks5Dialog) {
         com.easytier.android.ui.components.TextInputDialog(
