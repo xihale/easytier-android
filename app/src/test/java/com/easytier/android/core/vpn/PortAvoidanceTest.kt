@@ -3,6 +3,7 @@ package com.easytier.android.core.vpn
 import com.easytier.android.data.model.NetworkConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -127,5 +128,70 @@ class PortAvoidanceTest {
             requestedSocks5Port = null,
         )
         assertEquals(config.listenerUrls, final.listenerUrls)
+    }
+
+    // --- issue #3：VPN Portal 端口参与避让 ---
+
+    @Test
+    fun `vpn portal port avoids other instance portal and listener ports (issue #3)`() {
+        val first = NetworkConfig(
+            networkName = "a",
+            listenerUrls = listOf("tcp://0.0.0.0:11010"),
+            enableVpnPortal = true,
+            vpnPortalListenPort = 11010,
+        )
+        val second = NetworkConfig(
+            networkName = "b",
+            listenerUrls = listOf("tcp://0.0.0.0:12010"),
+            enableVpnPortal = true,
+            vpnPortalListenPort = 11010,
+        )
+        val final = PortAvoidance.resolve(
+            config = second,
+            runningConfigs = listOf(first),
+            selfName = "b",
+            socks5Enabled = false,
+            requestedSocks5Port = null,
+        )
+        // Portal 端口 11010 被first 占用 → +1；自身监听 12010 不冲突保持不变
+        assertEquals(11011, final.vpnPortalListenPort)
+        assertTrue(final.enableVpnPortal)
+        assertEquals(listOf("tcp://0.0.0.0:12010"), final.listenerUrls)
+    }
+
+    @Test
+    fun `vpn portal port avoids own listener ports (issue #3)`() {
+        // 默认 vpnPortalListenPort 11010 与默认监听 tcp/udp 11010 同端口：单实例也不能撞车
+        val final = PortAvoidance.resolve(
+            config = NetworkConfig(networkName = "a", enableVpnPortal = true),
+            runningConfigs = emptyList(),
+            selfName = "a",
+            socks5Enabled = false,
+            requestedSocks5Port = null,
+        )
+        // 自身监听占 11010/11011 → Portal 从 11010 起递增到 11012；监听不变
+        assertEquals(11012, final.vpnPortalListenPort)
+        assertEquals(NetworkConfig(networkName = "a").listenerUrls, final.listenerUrls)
+    }
+
+    @Test
+    fun `vpn portal port does not drift on restart (issue #1 style regression)`() {
+        val config = NetworkConfig(networkName = "a", enableVpnPortal = true, vpnPortalListenPort = 11010)
+        val first = PortAvoidance.resolve(
+            config = config,
+            runningConfigs = emptyList(),
+            selfName = "a",
+            socks5Enabled = false,
+            requestedSocks5Port = null,
+        )
+        // 重启/同步配置时自身旧记录在 runningConfigs 里，不得再次递增
+        val second = PortAvoidance.resolve(
+            config = config,
+            runningConfigs = listOf(first),
+            selfName = "a",
+            socks5Enabled = false,
+            requestedSocks5Port = null,
+        )
+        assertEquals(first, second)
     }
 }
