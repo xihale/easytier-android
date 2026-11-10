@@ -16,7 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -60,22 +59,25 @@ import com.easytier.android.ui.components.AppCard
 import com.easytier.android.ui.components.AppSnackbarHost
 import com.easytier.android.ui.components.ChoiceRow
 import com.easytier.android.ui.components.OssLicensesDialog
-import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.SettingRow
 import com.easytier.android.ui.components.SwitchRow
 import android.net.Uri
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import com.easytier.android.data.update.ReleaseInfo
 import com.easytier.android.data.update.UpdateCheckResult
 import com.easytier.android.ui.components.PillBadge
 import com.easytier.android.ui.icons.AppIcons
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.isSystemInDarkTheme
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -117,7 +119,21 @@ class SettingsViewModel : ViewModel() {
     private val _updateCheckResult = MutableStateFlow<UpdateCheckResult>(UpdateCheckResult.Idle)
     val updateCheckResult: StateFlow<UpdateCheckResult> = _updateCheckResult.asStateFlow()
 
-    // 手动「检查更新」：在 UI 显示检查中→结果，同时落库（用于自动检查触发与关于页显示）
+    /**
+     * 检查更新的一次性 UI 事件。与上面常驻的 updateCheckResult 状态分离：
+     * 状态会在离开页面（进子页/切底栏）后保留，回来时 LaunchedEffect 会重放旧值，
+     * 造成反复弹「已是最新」；事件只在检查真正发生时发送一次，收过即没了。
+     */
+    sealed interface UpdateUiEvent {
+        data object UpToDate : UpdateUiEvent
+        data object Failed : UpdateUiEvent
+        data class Newer(val info: ReleaseInfo) : UpdateUiEvent
+    }
+
+    private val _updateEvents = Channel<UpdateUiEvent>(Channel.BUFFERED)
+    val updateEvents: Flow<UpdateUiEvent> = _updateEvents.receiveAsFlow()
+
+    // 手动「检查更新」：发一次性事件（轻提示/弹窗），同时落库（用于自动检查触发与关于卡展示）
     fun checkUpdate() = viewModelScope.launch {
         _updateCheckResult.value = UpdateCheckResult.Checking
         val result = EasyTierApp.get().container.updateChecker.checkNow()
@@ -126,9 +142,16 @@ class SettingsViewModel : ViewModel() {
         val settingsRepo = EasyTierApp.get().container.settingsRepository
         settingsRepo.setLastUpdateCheckAt(now)
         when (result) {
-            is UpdateCheckResult.Newer -> settingsRepo.setPendingUpdate(result.info)
-            is UpdateCheckResult.UpToDate -> settingsRepo.clearPendingUpdate()
-            UpdateCheckResult.Checking, UpdateCheckResult.Idle, UpdateCheckResult.Error -> Unit
+            is UpdateCheckResult.Newer -> {
+                settingsRepo.setPendingUpdate(result.info)
+                _updateEvents.trySend(UpdateUiEvent.Newer(result.info))
+            }
+            is UpdateCheckResult.UpToDate -> {
+                settingsRepo.clearPendingUpdate()
+                _updateEvents.trySend(UpdateUiEvent.UpToDate)
+            }
+            UpdateCheckResult.Error -> _updateEvents.trySend(UpdateUiEvent.Failed)
+            UpdateCheckResult.Checking, UpdateCheckResult.Idle -> Unit
         }
     }
 
@@ -157,8 +180,9 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
     var showSocks5Dialog by remember { mutableStateOf(false) }
     var showLicenseDialog by remember { mutableStateOf(false) }
     var showUpdateIntervalDialog by remember { mutableStateOf(false) }
-    var showUpdateDialog by remember { mutableStateOf(false) }
-    // 检查按钮的即时状态（用于显示检查中菊叶与发现新版本是否该弹窗）
+    // 发现新版本弹窗的内容（一次性事件驱动，非页面间常驻状态）
+    var updateDialogInfo by remember { mutableStateOf<ReleaseInfo?>(null) }
+    // 检查按钮的即时状态（用于显示检查中菊叶与副标题）
     val checkState by vm.updateCheckResult.collectAsState()
 
     val s = settings ?: run {
@@ -174,23 +198,22 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp),
         ) {
-            // 「应用层」分组卡片：SettingRow 行内已带 horizontal 16dp，
-            // 卡内 Column 只补 vertical 4dp，避免双倍横向缩进
-            SectionHeader("应用层")
+            // 设置卡片：SettingRow 行内已带 horizontal 16dp，卡内 Column 只补 vertical 4dp，
+            // 避免双倍横向缩进。原「应用层」「外观」小标题已去掉，卡片即分组。
             AppCard {
                 Column(Modifier.padding(vertical = 4.dp)) {
                     SwitchRow(
                         title = "启动 VPN",
-                        subtitle = "关闭后不创建系统 VPN（TUN），仅运行引擎，可通过 SOCKS5 代理访问虚拟网络",
+                        subtitle = "关闭后仅运行引擎，可经 SOCKS5 访问虚拟网络",
                         icon = AppIcons.Shield,
                         checked = s.enableVpn,
                         onCheckedChange = { vm.setVpnEnabled(it) },
                     )
                     SwitchRow(
                         title = "SOCKS5 代理",
-                        subtitle = "在本机开启 SOCKS5 服务，作为访问虚拟网络的入口",
+                        subtitle = "在本机开启 SOCKS5 代理服务",
                         icon = AppIcons.Language,
                         checked = s.enableSocks5,
                         onCheckedChange = { vm.setSocks5(it, s.socks5Port) },
@@ -211,7 +234,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                         )
                         SettingRow(
                             title = "复制 Clash 路由",
-                            subtitle = "把虚拟网网段与 Magic DNS 后缀导流到 SOCKS5",
+                            subtitle = "虚拟网段导流到本机 SOCKS5",
                             icon = AppIcons.ContentCopy,
                             onClick = {
                                 scope.launch {
@@ -239,25 +262,18 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                     }
                     SwitchRow(
                         title = "开机自启",
-                        subtitle = "设备开机后自动启动服务，拉起全部勾选的网络",
+                        subtitle = "开机后自动拉起已勾选的网络",
                         icon = AppIcons.Terminal,
                         checked = s.autoStartOnBoot,
                         onCheckedChange = { vm.setAutoStart(context, it) },
                     )
                     SettingRow(
                         title = "DNS 上游",
-                        subtitle = "Magic DNS 转发普通域名查询，支持 DoT DoH",
+                        subtitle = "Magic DNS 上游，支持 DoT / DoH",
                         icon = AppIcons.Dns,
                         onClick = onOpenDns,
                         trailing = { Chevron() },
                     )
-                }
-            }
-
-            // 「外观」分组卡片：组间距由 SectionHeader 自带 top 20dp 提供，不再手动 Spacer
-            SectionHeader("外观")
-            AppCard {
-                Column(Modifier.padding(vertical = 4.dp)) {
                     ChoiceRow(
                         title = "主题",
                         value = THEME_OPTIONS.firstOrNull { it.first == s.themeMode }?.second ?: s.themeMode,
@@ -267,8 +283,9 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                 }
             }
 
-            // 「关于」分组卡片
-            SectionHeader("关于")
+            Spacer(Modifier.height(16.dp))
+
+            // 关于卡片（无小标题）
             AppCard {
                 Column {
                     // 头部：大应用图标、名称、版本胶囊、简述
@@ -392,7 +409,6 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                         )
                         SettingRow(
                             title = "开源许可",
-                            subtitle = "本应用及内置组件的许可证",
                             icon = AppIcons.Description,
                             onClick = { showLicenseDialog = true },
                             trailing = { Chevron() },
@@ -437,13 +453,14 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
         )
     }
 
-    // 检查更新结果 → 轻提示；发现新版本 → 弹窗
-    LaunchedEffect(checkState) {
-        when (checkState) {
-            is UpdateCheckResult.UpToDate -> snackbar.showSnackbar("已是最新版本")
-            is UpdateCheckResult.Error -> snackbar.showSnackbar("检查更新失败，请检查网络")
-            is UpdateCheckResult.Newer -> showUpdateDialog = true
-            else -> Unit
+    // 检查更新结果 → 一次性事件：只在检查发生时提示一次，进出子页/切页不会重放
+    LaunchedEffect(Unit) {
+        vm.updateEvents.collect { event ->
+            when (event) {
+                SettingsViewModel.UpdateUiEvent.UpToDate -> snackbar.showSnackbar("已是最新版本")
+                SettingsViewModel.UpdateUiEvent.Failed -> snackbar.showSnackbar("检查更新失败，请检查网络")
+                is SettingsViewModel.UpdateUiEvent.Newer -> updateDialogInfo = event.info
+            }
         }
     }
     if (showUpdateIntervalDialog) {
@@ -455,20 +472,19 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
             onDismiss = { showUpdateIntervalDialog = false },
         )
     }
-    if (showUpdateDialog && checkState is UpdateCheckResult.Newer) {
-        val info = (checkState as UpdateCheckResult.Newer).info
+    updateDialogInfo?.let { info ->
         AlertDialog(
-            onDismissRequest = { showUpdateDialog = false },
+            onDismissRequest = { updateDialogInfo = null },
             title = { Text("发现新版本 v${info.version}") },
             text = { Text(info.notes?.ifEmpty { null } ?: "点击前往发布页下载更新。") } ,
             confirmButton = {
                 TextButton(onClick = {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.url)))
-                    showUpdateDialog = false
+                    updateDialogInfo = null
                 }) { Text("去更新") }
             },
             dismissButton = {
-                TextButton(onClick = { showUpdateDialog = false }) { Text("以后再说") }
+                TextButton(onClick = { updateDialogInfo = null }) { Text("以后再说") }
             },
         )
     }
@@ -530,4 +546,3 @@ private fun ChoiceDialog(
         confirmButton = {},
     )
 }
-
