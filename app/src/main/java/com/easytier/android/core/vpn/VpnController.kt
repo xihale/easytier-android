@@ -75,11 +75,7 @@ class VpnController(
                             tunEstablished.clear()
                             EasyTierVpnService.stopTun(context)
                             if (_serviceRunning.value) {
-                                val names = runningConfigs.keys.joinToString(", ")
-                                EasyTierForegroundService.start(
-                                    context,
-                                    if (names.isNotEmpty()) "运行中 (无 TUN) · $names" else "运行中 (无 TUN 模式)",
-                                )
+                                EasyTierForegroundService.start(context, noTunText(runningConfigs.keys))
                             }
                         } else if (_serviceRunning.value) {
                             EasyTierForegroundService.stop(context)
@@ -148,35 +144,14 @@ class VpnController(
         val name = config.networkName
         // 多实例端口避让：监听端口与 SOCKS5 端口被其他运行实例占用时改用空闲端口，
         // 否则第二个网络会因 Address already in use 启动失败。
-        // 注意：必须排除自身（it != name），否则重启实例或同步配置时会把自己占用的端口误判为冲突，
-        // 导致每次重启 socks5Port 自增 +1、监听端口自增 +10 发生端口漂移。
-        val otherRunningConfigs = runningConfigs.filterKeys { it != name }.values
-        val usedPorts = otherRunningConfigs
-            .flatMap { it.listenerUrls }
-            .mapNotNull { it.substringAfterLast(':').toIntOrNull() }
-            .toMutableSet()
-        otherRunningConfigs.forEach {
-            if (it.enableSocks5 == true) it.socks5Port?.let { p -> usedPorts.add(p) }
-        }
-        val listeners = if (config.listenerUrls.any {
-                it.substringAfterLast(':').toIntOrNull() in usedPorts
-            }
-        ) {
-            config.listenerUrls.map { url -> avoidPortConflict(url, usedPorts) }
-        } else {
-            config.listenerUrls
-        }
-        val effectiveConfig = config.copy(listenerUrls = listeners)
-        var socks5Port = if (settings.enableSocks5) settings.socks5Port else null
-        if (socks5Port != null) {
-            var candidate = socks5Port
-            while (candidate in usedPorts) candidate += 1
-            usedPorts.add(candidate)
-            socks5Port = candidate
-        }
-        val finalConfig = effectiveConfig.copy(
-            enableSocks5 = socks5Port != null,
-            socks5Port = socks5Port,
+        // 自身排除在 PortAvoidance 内完成（含单测）：否则重启/同步配置时会把
+        // 自身端口误判为冲突，导致端口持续漂移（issue #1）。
+        val finalConfig = PortAvoidance.resolve(
+            config = config,
+            runningConfigs = runningConfigs.values,
+            selfName = name,
+            socks5Enabled = settings.enableSocks5,
+            requestedSocks5Port = settings.socks5Port,
         )
         // 已在运行：同配置只登记；配置已变（编辑后保存）则重启实例使新配置生效
         val configChanged = runningConfigs[name] != null &&
@@ -191,8 +166,7 @@ class VpnController(
             runningConfigs[name] = finalConfig
             tunEstablished.remove(name)
             if (!vpnEnabled && _serviceRunning.value) {
-                val names = runningConfigs.keys.joinToString(", ")
-                EasyTierForegroundService.start(context, "运行中 (无 TUN) · $names")
+                EasyTierForegroundService.start(context, noTunText(runningConfigs.keys))
             }
         }
     }
@@ -210,8 +184,7 @@ class VpnController(
         tunEstablished.remove(name)
         engine.stop(name)
         if (!vpnEnabled && _serviceRunning.value && runningConfigs.isNotEmpty()) {
-            val names = runningConfigs.keys.joinToString(", ")
-            EasyTierForegroundService.start(context, "运行中 (无 TUN) · $names")
+            EasyTierForegroundService.start(context, noTunText(runningConfigs.keys))
         }
     }
 
@@ -244,8 +217,10 @@ class VpnController(
                 }
                 enabledNetworks.forEach { startNetworkLocked(it) }
                 if (!vpnEnabled) {
-                    val names = enabledNetworks.joinToString(", ") { it.config.networkName }
-                    EasyTierForegroundService.start(context, "运行中 (无 TUN) · $names")
+                    EasyTierForegroundService.start(
+                        context,
+                        noTunText(enabledNetworks.map { it.config.networkName }),
+                    )
                 } else {
                     // 已在跑且拿到 IP 的直接补 TUN
                     engine.states.value.forEach { (name, state) ->
@@ -303,17 +278,11 @@ class VpnController(
         }.invokeOnCompletion { scope.cancel() }
     }
 
+    /** 无 TUN 模式的前台通知文案。 */
+    private fun noTunText(names: Collection<String>): String =
+        if (names.isEmpty()) "运行中 (无 TUN 模式)" else "运行中 (无 TUN) · ${names.joinToString(", ")}"
+
     companion object {
         private const val TAG = "VpnController"
-
-        /** 监听 URL 的端口被占用时，从原端口 +10 起找一个未占用端口。 */
-        private fun avoidPortConflict(url: String, usedPorts: MutableSet<Int>): String {
-            val port = url.substringAfterLast(':').toIntOrNull() ?: return url
-            if (port !in usedPorts) return url
-            var candidate = port
-            while (candidate in usedPorts) candidate += 10
-            usedPorts.add(candidate)
-            return url.substringBeforeLast(':') + ":" + candidate
-        }
     }
 }
