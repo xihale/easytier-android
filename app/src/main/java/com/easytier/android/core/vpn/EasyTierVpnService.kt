@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -36,7 +35,6 @@ class EasyTierVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var instanceName: String? = null
-    private var multicastLock: WifiManager.MulticastLock? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var currentIpv4: String? = null
@@ -84,7 +82,6 @@ class EasyTierVpnService : VpnService() {
 
         // instanceName 上面已判空返回，模板里不会出现 null
         startForeground(NOTIFICATION_ID, buildNotification("运行中 · $instanceName"))
-        acquireMulticastLock()
 
         scope.launch {
             runCatching { setupVpn(ipv4, cidrs, magicDns, dnsZone) }
@@ -194,30 +191,6 @@ class EasyTierVpnService : VpnService() {
     private fun stopVpn() {
         vpnInterface?.close()
         vpnInterface = null
-        releaseMulticastLock()
-    }
-
-    /**
-     * Android 默认会过滤组播，UPnP SSDP 与局域网 UDP 发现需要 multicast lock。
-     * 官方插件清单带 ACCESS_WIFI_STATE；这里显式拿锁，避免打洞/直连退化成中转。
-     */
-    private fun acquireMulticastLock() {
-        if (multicastLock?.isHeld == true) return
-        val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
-        runCatching {
-            wifi.createMulticastLock("easytier").apply {
-                setReferenceCounted(false)
-                acquire()
-                multicastLock = this
-            }
-            Log.i(TAG, "已获取 WiFi multicast lock")
-        }.onFailure { Log.w(TAG, "获取 multicast lock 失败: ${it.message}") }
-    }
-
-    private fun releaseMulticastLock() {
-        val lock = multicastLock ?: return
-        multicastLock = null
-        runCatching { if (lock.isHeld) lock.release() }
     }
 
     override fun onRevoke() {
