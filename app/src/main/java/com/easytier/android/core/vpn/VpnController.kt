@@ -142,7 +142,7 @@ class VpnController(
         )
         val effective = network.copy(config = config)
         val name = config.networkName
-        // 多实例端口避让：监听端口与 SOCKS5 端口被其他运行实例占用时改用空闲端口，
+        // 多实例端口避让：监听/SOCKS5/VPN Portal 端口被其他运行实例占用时改用空闲端口，
         // 否则第二个网络会因 Address already in use 启动失败。
         // 自身排除在 PortAvoidance 内完成（含单测）：否则重启/同步配置时会把
         // 自身端口误判为冲突，导致端口持续漂移（issue #1）。
