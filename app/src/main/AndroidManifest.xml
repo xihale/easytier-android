@@ -53,6 +53,15 @@
         </service>
 
         <service
+            android:name=".core.vpn.EasyTierForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="network_keepalive" />
+        </service>
+
+        <service
             android:name=".core.vpn.QuickSettingsTileService"
             android:exported="true"
             android:icon="@drawable/ic_tile_easytier"

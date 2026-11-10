@@ -74,7 +74,15 @@ class VpnController(
                         if (!enabled) {
                             tunEstablished.clear()
                             EasyTierVpnService.stopTun(context)
+                            if (_serviceRunning.value) {
+                                val names = runningConfigs.keys.joinToString(", ")
+                                EasyTierForegroundService.start(
+                                    context,
+                                    if (names.isNotEmpty()) "运行中 (无 TUN) · $names" else "运行中 (无 TUN 模式)",
+                                )
+                            }
                         } else if (_serviceRunning.value) {
+                            EasyTierForegroundService.stop(context)
                             engine.states.value.forEach { (name, state) ->
                                 (state as? InstanceState.Running)?.info?.let { maybeEstablishTun(name, it) }
                             }
@@ -110,6 +118,7 @@ class VpnController(
                 // 后缀与生成器同口径：显式配置优先，否则网络名（清洗后）
                 dnsZone = TomlGenerator.effectiveDnsZone(config),
             )
+            EasyTierForegroundService.stop(context)
         }.onFailure { Log.e(TAG, "VPN 服务启动失败", it) }
     }
 
@@ -181,6 +190,10 @@ class VpnController(
                 .onFailure { Log.e(TAG, "实例启动失败: ${it.message}"); return }
             runningConfigs[name] = finalConfig
             tunEstablished.remove(name)
+            if (!vpnEnabled && _serviceRunning.value) {
+                val names = runningConfigs.keys.joinToString(", ")
+                EasyTierForegroundService.start(context, "运行中 (无 TUN) · $names")
+            }
         }
     }
 
@@ -196,6 +209,10 @@ class VpnController(
         runningConfigs.remove(name)
         tunEstablished.remove(name)
         engine.stop(name)
+        if (!vpnEnabled && _serviceRunning.value && runningConfigs.isNotEmpty()) {
+            val names = runningConfigs.keys.joinToString(", ")
+            EasyTierForegroundService.start(context, "运行中 (无 TUN) · $names")
+        }
     }
 
     /**
@@ -226,9 +243,14 @@ class VpnController(
                     tunEstablished.remove(name)
                 }
                 enabledNetworks.forEach { startNetworkLocked(it) }
-                // 已在跑且拿到 IP 的直接补 TUN
-                engine.states.value.forEach { (name, state) ->
-                    (state as? InstanceState.Running)?.info?.let { maybeEstablishTun(name, it) }
+                if (!vpnEnabled) {
+                    val names = enabledNetworks.joinToString(", ") { it.config.networkName }
+                    EasyTierForegroundService.start(context, "运行中 (无 TUN) · $names")
+                } else {
+                    // 已在跑且拿到 IP 的直接补 TUN
+                    engine.states.value.forEach { (name, state) ->
+                        (state as? InstanceState.Running)?.info?.let { maybeEstablishTun(name, it) }
+                    }
                 }
             }
         }
@@ -244,6 +266,7 @@ class VpnController(
                 tunEstablished.clear()
             }
             EasyTierVpnService.stopTun(context)
+            EasyTierForegroundService.stop(context)
             engine.stopAll()
         }
     }
@@ -261,6 +284,8 @@ class VpnController(
                 runningConfigs.clear()
                 tunEstablished.clear()
             }
+            EasyTierVpnService.stopTun(context)
+            EasyTierForegroundService.stop(context)
             engine.stopAll()
         }
     }
@@ -273,6 +298,7 @@ class VpnController(
                 tunEstablished.clear()
             }
             EasyTierVpnService.stopTun(context)
+            EasyTierForegroundService.stop(context)
             engine.stopAll()
         }.invokeOnCompletion { scope.cancel() }
     }
