@@ -1,45 +1,61 @@
 package com.easytier.android.ui.screens.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.easytier.android.ui.components.AppCard
 import com.easytier.android.ui.components.AppSnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import com.easytier.android.ui.components.StringListEditor
+import com.easytier.android.ui.components.PillBadge
+import com.easytier.android.ui.icons.AppIcons
 import com.easytier.android.util.DnsServers
 import kotlinx.coroutines.launch
 
 /**
  * DNS 上游独立设置页：Magic DNS 转发普通域名查询的上游服务器（DoT/DoH）。
  * 全局生效，注入所有开启 Magic DNS 的网络；清空列表 = 核心内置默认（纯 UDP）。
+ *
+ * 版式自上而下：已添加列表（协议徽标 + 地址 + 删除）→ 添加输入框 → 一行说明 → 预置快捷 chip。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -70,6 +86,27 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
         },
     ) { padding ->
         val s = settings
+        if (s == null) {
+            Box(
+                Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center,
+            ) { CircularProgressIndicator() }
+            return@Scaffold
+        }
+
+        // 统一添加入口：去重 + 格式校验（与核心 parse_dns_forward_server 同口径）
+        fun addServer(raw: String) {
+            val v = raw.trim()
+            when {
+                v.isEmpty() -> Unit
+                v in s.dnsServers -> scope.launch { snackbar.showSnackbar("已存在，无需重复添加") }
+                !DnsServers.isValid(v) -> scope.launch {
+                    snackbar.showSnackbar("格式无效，支持 udp:// tcp:// tls://（DoT） https://（DoH）")
+                }
+                else -> vm.setDnsServers(s.dnsServers + v)
+            }
+        }
+
         Column(
             Modifier
                 .fillMaxSize()
@@ -78,54 +115,129 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                 .imePadding()
                 .padding(horizontal = 16.dp),
         ) {
-            if (s == null) return@Column
             AppCard {
                 Column(Modifier.padding(vertical = 4.dp)) {
-                    StringListEditor(
-                        label = "上游 DNS 服务器",
-                        placeholder = DnsServers.DEFAULT_SERVER,
-                        items = s.dnsServers,
-                        onChange = { next ->
-                            val valid = next.filter { DnsServers.isValid(it) }
-                            if (valid.size != next.size) {
-                                scope.launch {
-                                    snackbar.showSnackbar("已忽略无效地址，仅支持 udp tcp tls https 服务器")
-                                }
-                            }
-                            vm.setDnsServers(valid)
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
-                    Text(
-                        "Magic DNS 转发普通域名查询的上游，按顺序故障转移；重启网络后生效。" +
-                            "tls:// 即 DoT，https:// 即 DoH。清空列表使用核心内置默认（纯 UDP）。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                    // 预置快捷导入：名称在左，右侧图标点按加入；已加入的变 ✓ 并禁用
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    ) {
-                        DnsServers.PRESETS.forEach { (url, label) ->
-                            val added = url in s.dnsServers
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(label, style = MaterialTheme.typography.bodyMedium)
-                                IconButton(
-                                    onClick = { vm.setDnsServers(s.dnsServers + url) },
-                                    enabled = !added,
-                                ) {
-                                    Icon(
-                                        if (added) Icons.Filled.Check else Icons.Filled.Add,
-                                        if (added) "已导入 $label" else "导入 $label",
-                                    )
-                                }
+                    // 已添加上游：协议徽标 + 等宽地址 + 删除；空列表回退核心内置默认
+                    if (s.dnsServers.isEmpty()) {
+                        Text(
+                            "尚未添加，使用核心内置默认（纯 UDP）",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        )
+                    } else {
+                        s.dnsServers.forEachIndexed { i, server ->
+                            ServerRow(server, onDelete = { vm.setDnsServers(s.dnsServers - server) })
+                            if (i < s.dnsServers.lastIndex) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                )
                             }
                         }
                     }
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    )
+                    var input by remember { mutableStateOf("") }
+                    fun submitAdd() {
+                        addServer(input)
+                        input = ""
+                    }
+                    OutlinedTextField(
+                        value = input,
+                        onValueChange = { input = it },
+                        label = { Text("添加上游") },
+                        placeholder = { Text(DnsServers.DEFAULT_SERVER) },
+                        singleLine = true,
+                        trailingIcon = {
+                            IconButton(
+                                onClick = ::submitAdd,
+                                enabled = input.isNotBlank(),
+                            ) {
+                                Icon(Icons.Filled.Add, "添加")
+                            }
+                        },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { submitAdd() }),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
                 }
             }
+
+            Text(
+                "按顺序故障转移，重启网络后生效；清空列表回退核心内置默认（纯 UDP）。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
+            )
+
+            // 预置快捷添加：点按加入，再点移除（开关式），已加入的带 ✓
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = 4.dp),
+            ) {
+                DnsServers.PRESETS.forEach { (url, label) ->
+                    val added = url in s.dnsServers
+                    InputChip(
+                        selected = false,
+                        onClick = {
+                            vm.setDnsServers(if (added) s.dnsServers - url else s.dnsServers + url)
+                        },
+                        label = { Text(label) },
+                        leadingIcon = if (added) {
+                            { Icon(AppIcons.Check, "已添加 $label", modifier = Modifier.size(16.dp)) }
+                        } else {
+                            null
+                        },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+/** 上游行：协议徽标（DoT/DoH/UDP/TCP）+ 等宽地址 + 删除按钮。 */
+@Composable
+private fun ServerRow(server: String, onDelete: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        PillBadge(
+            text = schemeLabel(server),
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        Text(
+            server,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onDelete) {
+            Icon(
+                AppIcons.Close,
+                "删除 $server",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+/** URL scheme → 展示用协议名。 */
+private fun schemeLabel(url: String): String = when (url.substringBefore("://", "").lowercase()) {
+    "tls" -> "DoT"
+    "https" -> "DoH"
+    "udp" -> "UDP"
+    "tcp" -> "TCP"
+    else -> "DNS"
 }
