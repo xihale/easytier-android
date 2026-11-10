@@ -74,7 +74,11 @@ class VpnController(
                         if (!enabled) {
                             tunEstablished.clear()
                             EasyTierVpnService.stopTun(context)
+                            if (_serviceRunning.value) {
+                                EasyTierForegroundService.start(context, noTunText(runningConfigs.keys))
+                            }
                         } else if (_serviceRunning.value) {
+                            EasyTierForegroundService.stop(context)
                             engine.states.value.forEach { (name, state) ->
                                 (state as? InstanceState.Running)?.info?.let { maybeEstablishTun(name, it) }
                             }
@@ -110,6 +114,7 @@ class VpnController(
                 // 后缀与生成器同口径：显式配置优先，否则网络名（清洗后）
                 dnsZone = TomlGenerator.effectiveDnsZone(config),
             )
+            EasyTierForegroundService.stop(context)
         }.onFailure { Log.e(TAG, "VPN 服务启动失败", it) }
     }
 
@@ -138,33 +143,15 @@ class VpnController(
         val effective = network.copy(config = config)
         val name = config.networkName
         // 多实例端口避让：监听端口与 SOCKS5 端口被其他运行实例占用时改用空闲端口，
-        // 否则第二个网络会因 Address already in use 启动失败
-        val usedPorts = runningConfigs.values
-            .flatMap { it.listenerUrls }
-            .mapNotNull { it.substringAfterLast(':').toIntOrNull() }
-            .toMutableSet()
-        runningConfigs.values.forEach {
-            if (it.enableSocks5 == true) it.socks5Port?.let { p -> usedPorts.add(p) }
-        }
-        val listeners = if (config.listenerUrls.any {
-                it.substringAfterLast(':').toIntOrNull() in usedPorts
-            }
-        ) {
-            config.listenerUrls.map { url -> avoidPortConflict(url, usedPorts) }
-        } else {
-            config.listenerUrls
-        }
-        val effectiveConfig = config.copy(listenerUrls = listeners)
-        var socks5Port = if (settings.enableSocks5) settings.socks5Port else null
-        if (socks5Port != null) {
-            var candidate = socks5Port
-            while (candidate in usedPorts) candidate += 1
-            usedPorts.add(candidate)
-            socks5Port = candidate
-        }
-        val finalConfig = effectiveConfig.copy(
-            enableSocks5 = socks5Port != null,
-            socks5Port = socks5Port,
+        // 否则第二个网络会因 Address already in use 启动失败。
+        // 自身排除在 PortAvoidance 内完成（含单测）：否则重启/同步配置时会把
+        // 自身端口误判为冲突，导致端口持续漂移（issue #1）。
+        val finalConfig = PortAvoidance.resolve(
+            config = config,
+            runningConfigs = runningConfigs.values,
+            selfName = name,
+            socks5Enabled = settings.enableSocks5,
+            requestedSocks5Port = settings.socks5Port,
         )
         // 已在运行：同配置只登记；配置已变（编辑后保存）则重启实例使新配置生效
         val configChanged = runningConfigs[name] != null &&
@@ -178,6 +165,9 @@ class VpnController(
                 .onFailure { Log.e(TAG, "实例启动失败: ${it.message}"); return }
             runningConfigs[name] = finalConfig
             tunEstablished.remove(name)
+            if (!vpnEnabled && _serviceRunning.value) {
+                EasyTierForegroundService.start(context, noTunText(runningConfigs.keys))
+            }
         }
     }
 
@@ -193,6 +183,9 @@ class VpnController(
         runningConfigs.remove(name)
         tunEstablished.remove(name)
         engine.stop(name)
+        if (!vpnEnabled && _serviceRunning.value && runningConfigs.isNotEmpty()) {
+            EasyTierForegroundService.start(context, noTunText(runningConfigs.keys))
+        }
     }
 
     /**
@@ -223,9 +216,16 @@ class VpnController(
                     tunEstablished.remove(name)
                 }
                 enabledNetworks.forEach { startNetworkLocked(it) }
-                // 已在跑且拿到 IP 的直接补 TUN
-                engine.states.value.forEach { (name, state) ->
-                    (state as? InstanceState.Running)?.info?.let { maybeEstablishTun(name, it) }
+                if (!vpnEnabled) {
+                    EasyTierForegroundService.start(
+                        context,
+                        noTunText(enabledNetworks.map { it.config.networkName }),
+                    )
+                } else {
+                    // 已在跑且拿到 IP 的直接补 TUN
+                    engine.states.value.forEach { (name, state) ->
+                        (state as? InstanceState.Running)?.info?.let { maybeEstablishTun(name, it) }
+                    }
                 }
             }
         }
@@ -241,6 +241,7 @@ class VpnController(
                 tunEstablished.clear()
             }
             EasyTierVpnService.stopTun(context)
+            EasyTierForegroundService.stop(context)
             engine.stopAll()
         }
     }
@@ -258,6 +259,8 @@ class VpnController(
                 runningConfigs.clear()
                 tunEstablished.clear()
             }
+            EasyTierVpnService.stopTun(context)
+            EasyTierForegroundService.stop(context)
             engine.stopAll()
         }
     }
@@ -270,21 +273,16 @@ class VpnController(
                 tunEstablished.clear()
             }
             EasyTierVpnService.stopTun(context)
+            EasyTierForegroundService.stop(context)
             engine.stopAll()
         }.invokeOnCompletion { scope.cancel() }
     }
 
+    /** 无 TUN 模式的前台通知文案。 */
+    private fun noTunText(names: Collection<String>): String =
+        if (names.isEmpty()) "运行中 (无 TUN 模式)" else "运行中 (无 TUN) · ${names.joinToString(", ")}"
+
     companion object {
         private const val TAG = "VpnController"
-
-        /** 监听 URL 的端口被占用时，从原端口 +10 起找一个未占用端口。 */
-        private fun avoidPortConflict(url: String, usedPorts: MutableSet<Int>): String {
-            val port = url.substringAfterLast(':').toIntOrNull() ?: return url
-            if (port !in usedPorts) return url
-            var candidate = port
-            while (candidate in usedPorts) candidate += 10
-            usedPorts.add(candidate)
-            return url.substringBeforeLast(':') + ":" + candidate
-        }
     }
 }
