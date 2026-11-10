@@ -53,7 +53,7 @@ class EasyTierVpnService : VpnService() {
         when (intent?.action) {
             ACTION_STOP -> {
                 // 通知栏停止：停 TUN + 停全部网络实例（服务与网络一起关）
-                startForeground(NOTIFICATION_ID, buildNotification("正在停止"))
+                startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.vpn_state_stopping)))
                 stopVpn()
                 stopAllExternally()
                 stopSelf()
@@ -61,7 +61,7 @@ class EasyTierVpnService : VpnService() {
             }
             ACTION_STOP_TUN -> {
                 // 仅关 TUN 与前台服务，不动核心实例（服务/网络解耦）
-                startForeground(NOTIFICATION_ID, buildNotification("正在停止"))
+                startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.vpn_state_stopping)))
                 stopVpn()
                 stopSelf()
                 return START_NOT_STICKY
@@ -77,13 +77,13 @@ class EasyTierVpnService : VpnService() {
         if (instanceName == null || ipv4 == null) {
             Log.e(TAG, "缺少必要参数，停止服务")
             // START_STICKY 重建时 intent 为 null：补一次 startForeground 满足前台服务回调义务
-            startForeground(NOTIFICATION_ID, buildNotification("启动中"))
+            startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.vpn_state_starting)))
             stopSelf()
             return START_NOT_STICKY
         }
 
         // instanceName 上面已判空返回，模板里不会出现 null
-        startForeground(NOTIFICATION_ID, buildNotification("运行中 · $instanceName"))
+        startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.vpn_state_running, instanceName!!)))
         acquireMulticastLock()
 
         scope.launch {
@@ -155,7 +155,8 @@ class EasyTierVpnService : VpnService() {
             }.onFailure { Log.w(TAG, "无效路由 $cidr: ${it.message}") }
         }
 
-        val tun = builder.establish() ?: throw IllegalStateException("TUN establish 返回 null")
+        val tun = builder.establish()
+            ?: throw IllegalStateException(getString(R.string.vpn_err_establish_null))
         vpnInterface = tun
         currentIpv4 = ipv4Cidr
         currentProxyCidrs = proxyCidrs
@@ -166,7 +167,9 @@ class EasyTierVpnService : VpnService() {
         if (name != null) {
             val rc = EasyTierJNI.setTunFd(name, tun.fd)
             if (rc != 0) {
-                throw IllegalStateException("setTunFd 失败: ${EasyTierJNI.getLastError()}")
+                throw IllegalStateException(
+                getString(R.string.vpn_err_set_tun_fd, EasyTierJNI.getLastError()),
+            )
             }
         }
         Log.i(TAG, "TUN 已建立: $ip/$prefix, 路由 ${proxyCidrs.size} 条${if (magicDns) ", Magic DNS($dnsZone)" else ""}")
@@ -256,9 +259,9 @@ class EasyTierVpnService : VpnService() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID, "EasyTier VPN",
+                CHANNEL_ID, getString(R.string.vpn_channel_name),
                 NotificationManager.IMPORTANCE_LOW,
-            ).apply { description = "EasyTier 网络服务运行状态" }
+            ).apply { description = getString(R.string.vpn_channel_desc) }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
@@ -279,7 +282,7 @@ class EasyTierVpnService : VpnService() {
             .setContentTitle("EasyTier")
             .setContentText(text)
             .setContentIntent(contentIntent)
-            .addAction(0, "停止", stopIntent)
+            .addAction(0, getString(R.string.vpn_action_stop), stopIntent)
             .setOngoing(true)
             .build()
     }
@@ -293,9 +296,9 @@ class EasyTierVpnService : VpnService() {
             ) {
                 manager.createNotificationChannel(
                     NotificationChannel(
-                        CHANNEL_ALERT_ID, "连接异常",
+                        CHANNEL_ALERT_ID, getString(R.string.vpn_alert_channel_name),
                         NotificationManager.IMPORTANCE_DEFAULT,
-                    ).apply { description = "VPN 建立失败等需要处理的异常" },
+                    ).apply { description = getString(R.string.vpn_alert_channel_desc) },
                 )
             }
             val retryIntent = PendingIntent.getActivity(
@@ -309,12 +312,14 @@ class EasyTierVpnService : VpnService() {
                 ALERT_NOTIFICATION_ID,
                 NotificationCompat.Builder(this, CHANNEL_ALERT_ID)
                     .setSmallIcon(R.drawable.ic_stat_vpn)
-                    .setContentTitle("EasyTier VPN 建立失败")
-                    .setContentText("可能未授权或被其他 VPN 占用，点按授权并重试")
+                    .setContentTitle(getString(R.string.vpn_alert_title))
+                    .setContentText(getString(R.string.vpn_alert_text))
                     .setStyle(
                         NotificationCompat.BigTextStyle().bigText(
-                            "可能未授权或被其他 VPN 占用，点按授权并重试。" +
-                                "（${cause.message ?: "未知原因"}）"
+                            getString(
+                                R.string.vpn_alert_big_text,
+                                cause.message ?: getString(R.string.vpn_alert_unknown),
+                            ),
                         ),
                     )
                     .setContentIntent(retryIntent)

@@ -2,6 +2,8 @@ package com.easytier.android.data.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import androidx.annotation.StringRes
+import com.easytier.android.R
 
 /**
  * 网络配置模型。
@@ -92,11 +94,12 @@ enum class NetworkingMethod {
     @SerialName("1") Manual,
     @SerialName("2") Standalone;
 
-    val label: String
-        get() = when (this) {
-            PublicServer -> "公共服务器"
-            Manual -> "手动节点"
-            Standalone -> "独立模式"
+    /** 展示名资源，UI 侧用 stringResource 解析（i18n）。 */
+    val labelRes: Int
+        @StringRes get() = when (this) {
+            PublicServer -> R.string.method_public_server
+            Manual -> R.string.method_manual
+            Standalone -> R.string.method_standalone
         }
 }
 

@@ -13,6 +13,7 @@ EasyTier 核心引擎（`libeasytier_android_jni.so`），不依赖 Tauri / WebV
   支持 DoT / DoH），按顺序故障转移
 - 对等节点状态、速率与流量实时展示
 - 开机自启、深浅色主题跟随系统
+- 界面文案随系统语言切换（中文 / 英文）；Android 13+ 可在系统「应用语言」里单独指定
 
 ## 构建
 

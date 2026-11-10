@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 声明支持的语言：Android 13+ 的系统「应用语言」设置据此展示选项（per-app language） -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="zh-CN" />
+    <locale android:name="en" />
+</locale-config>

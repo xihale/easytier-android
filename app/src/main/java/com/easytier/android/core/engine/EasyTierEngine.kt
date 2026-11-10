@@ -1,5 +1,7 @@
 package com.easytier.android.core.engine
 
+import android.content.Context
+import com.easytier.android.R
 import com.easytier.android.data.model.NetworkInstanceRunningInfo
 import com.easytier.android.data.model.NetworkInstanceRunningInfoMap
 import com.easytier.android.data.model.RuntimeJson
@@ -38,7 +40,12 @@ data class EngineEvent(
  *
  * JNI 调用全部在 IO 调度器上执行；状态以 StateFlow 暴露给 UI。
  */
-class EasyTierEngine {
+class EasyTierEngine(private val appContext: Context? = null) {
+
+    /** 展示给用户的兜底错误文案（网络卡副标题/状态页提示），随应用语言本地化。 */
+    private val notRunningMessage: String
+        get() = appContext?.getString(R.string.engine_not_running) ?: "Instance not running"
+
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
@@ -150,7 +157,7 @@ class EasyTierEngine {
             newStates[name] = if (info.running) {
                 InstanceState.Running(info)
             } else {
-                InstanceState.Error(info.errorMsg ?: "实例未在运行")
+                InstanceState.Error(info.errorMsg ?: notRunningMessage)
             }
         }
         // 内容不变时不发新值，StateFlow 去重失败会每 2s 触发整页重组（切页卡顿来源之一）

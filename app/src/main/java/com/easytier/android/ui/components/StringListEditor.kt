@@ -22,7 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.easytier.android.R
 
 /**
  * 字符串列表编辑器（peer urls / proxy cidrs / listeners 等）。
@@ -57,7 +59,7 @@ fun StringListEditor(
                     input = ""
                 },
             ) {
-                Icon(Icons.Filled.Add, "添加")
+                Icon(Icons.Filled.Add, stringResource(R.string.common_add))
             }
         }
         if (items.isNotEmpty()) {
@@ -69,11 +71,12 @@ fun StringListEditor(
             ) {
                 items.forEach { item ->
                     // M3 InputChip 的 trailingIcon 无独立点击事件，整 chip 可点即删除
+                    val deleteLabel = stringResource(R.string.common_delete_item, item)
                     InputChip(
                         selected = false,
                         onClick = { onChange(items - item) },
                         label = { Text(item) },
-                        trailingIcon = { Icon(Icons.Filled.Close, "删除 $item") },
+                        trailingIcon = { Icon(Icons.Filled.Close, deleteLabel) },
                     )
                 }
             }

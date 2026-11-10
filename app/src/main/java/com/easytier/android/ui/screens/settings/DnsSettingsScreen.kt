@@ -40,9 +40,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.easytier.android.R
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.easytier.android.ui.components.AppCard
 import com.easytier.android.ui.components.AppSnackbarHost
@@ -64,6 +67,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
     val settings by vm.settings.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     Scaffold(
         snackbarHost = { AppSnackbarHost(snackbar) },
@@ -75,10 +79,10 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back))
                 }
                 Text(
-                    "DNS 上游",
+                    stringResource(R.string.dns_title),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
@@ -99,9 +103,11 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
             val v = raw.trim()
             when {
                 v.isEmpty() -> Unit
-                v in s.dnsServers -> scope.launch { snackbar.showSnackbar("已存在，无需重复添加") }
+                v in s.dnsServers -> scope.launch {
+                    snackbar.showSnackbar(context.getString(R.string.dns_dup_snack))
+                }
                 !DnsServers.isValid(v) -> scope.launch {
-                    snackbar.showSnackbar("格式无效，支持 udp:// tcp:// tls://（DoT） https://（DoH）")
+                    snackbar.showSnackbar(context.getString(R.string.dns_invalid_snack))
                 }
                 else -> vm.setDnsServers(s.dnsServers + v)
             }
@@ -120,7 +126,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                     // 已添加上游：协议徽标 + 等宽地址 + 删除；空列表回退核心内置默认
                     if (s.dnsServers.isEmpty()) {
                         Text(
-                            "尚未添加，使用核心内置默认（纯 UDP）",
+                            stringResource(R.string.dns_empty),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
@@ -148,7 +154,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                     OutlinedTextField(
                         value = input,
                         onValueChange = { input = it },
-                        label = { Text("添加上游") },
+                        label = { Text(stringResource(R.string.dns_add)) },
                         placeholder = { Text(DnsServers.DEFAULT_SERVER) },
                         singleLine = true,
                         trailingIcon = {
@@ -156,7 +162,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                                 onClick = ::submitAdd,
                                 enabled = input.isNotBlank(),
                             ) {
-                                Icon(Icons.Filled.Add, "添加")
+                                Icon(Icons.Filled.Add, stringResource(R.string.common_add))
                             }
                         },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -169,7 +175,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
             }
 
             Text(
-                "按顺序故障转移，重启网络后生效；清空列表回退核心内置默认（纯 UDP）。",
+                stringResource(R.string.dns_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
@@ -181,8 +187,9 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(horizontal = 4.dp),
             ) {
-                DnsServers.PRESETS.forEach { (url, label) ->
+                DnsServers.PRESETS.forEach { (url, labelRes) ->
                     val added = url in s.dnsServers
+                    val label = stringResource(labelRes)
                     InputChip(
                         selected = false,
                         onClick = {
@@ -190,7 +197,13 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                         },
                         label = { Text(label) },
                         leadingIcon = if (added) {
-                            { Icon(AppIcons.Check, "已添加 $label", modifier = Modifier.size(16.dp)) }
+                            {
+                                Icon(
+                                    AppIcons.Check,
+                                    stringResource(R.string.dns_preset_added_cd, label),
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
                         } else {
                             null
                         },
@@ -206,6 +219,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
 /** 上游行：协议徽标（DoT/DoH/UDP/TCP）+ 等宽地址 + 删除按钮。 */
 @Composable
 private fun ServerRow(server: String, onDelete: () -> Unit) {
+    val deleteLabel = stringResource(R.string.common_delete_item, server)
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -225,7 +239,7 @@ private fun ServerRow(server: String, onDelete: () -> Unit) {
         IconButton(onClick = onDelete) {
             Icon(
                 AppIcons.Close,
-                "删除 $server",
+                deleteLabel,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),
             )

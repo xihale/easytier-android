@@ -9,6 +9,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
+import com.easytier.android.R
 
 /** 确认对话框。 */
 @Composable
@@ -17,10 +19,13 @@ fun ConfirmDialog(
     text: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
-    confirmText: String = "确定",
-    dismissText: String = "取消",
+    confirmText: String? = null,
+    dismissText: String? = null,
     destructive: Boolean = false,
 ) {
+    // 默认按钮文案取资源（默认参数处不能调 Composable）
+    val confirm = confirmText ?: stringResource(R.string.common_ok)
+    val dismiss = dismissText ?: stringResource(R.string.common_cancel)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -28,13 +33,13 @@ fun ConfirmDialog(
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(
-                    confirmText,
+                    confirm,
                     color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 )
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(dismissText) }
+            TextButton(onClick = onDismiss) { Text(dismiss) }
         },
     )
 }
@@ -47,9 +52,11 @@ fun TextInputDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
     label: String = "",
-    confirmText: String = "确定",
+    confirmText: String? = null,
 ) {
     var value by remember { mutableStateOf(initialValue) }
+    val confirm = confirmText ?: stringResource(R.string.common_ok)
+    val cancel = stringResource(R.string.common_cancel)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -62,10 +69,10 @@ fun TextInputDialog(
             )
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(value.trim()); onDismiss() }) { Text(confirmText) }
+            TextButton(onClick = { onConfirm(value.trim()); onDismiss() }) { Text(confirm) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(cancel) }
         },
     )
 }

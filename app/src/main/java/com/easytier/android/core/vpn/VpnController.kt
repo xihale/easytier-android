@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.util.Log
+import com.easytier.android.R
 import com.easytier.android.core.engine.EasyTierEngine
 import com.easytier.android.core.engine.InstanceState
 import com.easytier.android.core.toml.TomlGenerator
@@ -203,7 +204,9 @@ class VpnController(
      */
     fun startService(enabledNetworks: List<SavedNetwork>): Result<Unit> {
         if (enabledNetworks.isEmpty()) {
-            return Result.failure(IllegalStateException("没有勾选的网络，请先勾选要加入服务的网络"))
+            return Result.failure(
+                IllegalStateException(context.getString(R.string.error_no_enabled_networks)),
+            )
         }
         _serviceRunning.value = true
         scope.launch {

@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -157,11 +158,18 @@ class SettingsViewModel : ViewModel() {
     }
 }
 
-private val THEME_OPTIONS = listOf("system" to "跟随系统", "light" to "浅色", "dark" to "深色")
+private val THEME_OPTIONS = listOf(
+    "system" to R.string.theme_system,
+    "light" to R.string.theme_light,
+    "dark" to R.string.theme_dark,
+)
 
-// 自动检测频率选项（默认关闭）。更新检测从 GitHub Releases 检查
+// 自动检测频率选项（默认关闭）。更新检测从 GitHub Releases 检查；标签为字符串资源（i18n）
 private val UPDATE_INTERVAL_OPTIONS = listOf(
-    "off" to "关闭", "startup" to "每次启动", "daily" to "每天", "weekly" to "每周",
+    "off" to R.string.update_freq_off,
+    "startup" to R.string.update_freq_startup,
+    "daily" to R.string.update_freq_daily,
+    "weekly" to R.string.update_freq_weekly,
 )
 
 @Composable
@@ -202,20 +210,20 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
             AppCard {
                 Column(Modifier.padding(vertical = 4.dp)) {
                     SwitchRow(
-                        title = "VPN 模式",
+                        title = stringResource(R.string.settings_vpn_mode),
                         icon = AppIcons.Shield,
                         checked = s.enableVpn,
                         onCheckedChange = { vm.setVpnEnabled(it) },
                     )
                     SwitchRow(
-                        title = "SOCKS5 代理",
+                        title = stringResource(R.string.settings_socks5),
                         icon = AppIcons.Language,
                         checked = s.enableSocks5,
                         onCheckedChange = { vm.setSocks5(it, s.socks5Port) },
                     )
                     if (s.enableSocks5) {
                         SettingRow(
-                            title = "SOCKS5 端口",
+                            title = stringResource(R.string.settings_socks5_port),
                             icon = AppIcons.Terminal,
                             onClick = { showSocks5Dialog = true },
                             trailing = {
@@ -227,7 +235,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                             },
                         )
                         SettingRow(
-                            title = "复制 Clash 路由",
+                            title = stringResource(R.string.settings_copy_clash),
                             icon = AppIcons.ContentCopy,
                             onClick = {
                                 scope.launch {
@@ -244,30 +252,39 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                                         ),
                                     )
                                     val summary = buildList {
-                                        if (zones.isNotEmpty()) add("${zones.size} 个 DNS 后缀")
-                                        add(if (cidrs.isEmpty()) "默认网段" else "${cidrs.size} 条网段")
-                                    }.joinToString("、")
-                                    snackbar.showSnackbar("已复制 $summary 路由")
+                                        if (zones.isNotEmpty()) {
+                                            add(context.getString(R.string.clash_summary_zones, zones.size))
+                                        }
+                                        add(
+                                            if (cidrs.isEmpty()) {
+                                                context.getString(R.string.clash_summary_default)
+                                            } else {
+                                                context.getString(R.string.clash_summary_cidrs, cidrs.size)
+                                            },
+                                        )
+                                    }.joinToString(context.getString(R.string.common_list_separator))
+                                    snackbar.showSnackbar(context.getString(R.string.clash_copied, summary))
                                 }
                             },
                             trailing = { Chevron() },
                         )
                     }
                     SwitchRow(
-                        title = "开机自启",
+                        title = stringResource(R.string.settings_start_on_boot),
                         icon = AppIcons.Terminal,
                         checked = s.autoStartOnBoot,
                         onCheckedChange = { vm.setAutoStart(context, it) },
                     )
                     SettingRow(
-                        title = "DNS 上游",
+                        title = stringResource(R.string.settings_dns_upstream),
                         icon = AppIcons.Dns,
                         onClick = onOpenDns,
                         trailing = { Chevron() },
                     )
                     ChoiceRow(
-                        title = "主题",
-                        value = THEME_OPTIONS.firstOrNull { it.first == s.themeMode }?.second ?: s.themeMode,
+                        title = stringResource(R.string.settings_theme),
+                        value = THEME_OPTIONS.firstOrNull { it.first == s.themeMode }
+                            ?.let { stringResource(it.second) } ?: s.themeMode,
                         icon = AppIcons.DarkMode,
                         onClick = { showThemeDialog = true },
                     )
@@ -302,7 +319,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                         ) {
                             Image(
                                 painter = painterResource(R.drawable.ic_launcher_foreground),
-                                contentDescription = "EasyTier Logo",
+                                contentDescription = stringResource(R.string.common_logo_cd),
                                 modifier = Modifier.size(100.dp),
                             )
                         }
@@ -318,7 +335,10 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                             shape = RoundedCornerShape(8.dp),
                         ) {
                             Text(
-                                text = "v${com.easytier.android.BuildConfig.VERSION_NAME} (Native)",
+                                text = stringResource(
+                                    R.string.about_version,
+                                    com.easytier.android.BuildConfig.VERSION_NAME,
+                                ),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
@@ -326,7 +346,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                         }
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = "去中心化 P2P 虚拟网状网络客户端",
+                            text = stringResource(R.string.about_desc),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -341,7 +361,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                         // 待查看的新版本，突出展示
                         if (s.pendingUpdateVersion.isNotEmpty()) {
                             SettingRow(
-                                title = "发现新版本 v${s.pendingUpdateVersion}",
+                                title = stringResource(R.string.update_new_version_title, s.pendingUpdateVersion),
                                 icon = AppIcons.Download,
                                 onClick = {
                                     context.startActivity(
@@ -350,7 +370,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                                 },
                                 trailing = {
                                     PillBadge(
-                                        text = "新",
+                                        text = stringResource(R.string.settings_new_badge),
                                         containerColor = MaterialTheme.colorScheme.errorContainer,
                                         labelColor = MaterialTheme.colorScheme.onErrorContainer,
                                     )
@@ -362,7 +382,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                             )
                         }
                         SettingRow(
-                            title = "检查更新",
+                            title = stringResource(R.string.settings_check_update),
                             icon = AppIcons.Download,
                             onClick = { vm.checkUpdate() },
                             trailing = {
@@ -377,14 +397,16 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                             },
                         )
                         ChoiceRow(
-                            title = "自动检查",
+                            title = stringResource(R.string.settings_auto_check),
                             value = UPDATE_INTERVAL_OPTIONS
-                                .firstOrNull { it.first == s.updateCheckInterval }?.second ?: "关闭",
+                                .firstOrNull { it.first == s.updateCheckInterval }
+                                ?.let { stringResource(it.second) }
+                                ?: stringResource(R.string.update_freq_off),
                             icon = AppIcons.Schedule,
                             onClick = { showUpdateIntervalDialog = true },
                         )
                         SettingRow(
-                            title = "项目主页",
+                            title = stringResource(R.string.settings_project_home),
                             icon = AppIcons.Language,
                             onClick = {
                                 context.startActivity(
@@ -397,7 +419,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                             trailing = { Chevron() },
                         )
                         SettingRow(
-                            title = "开源许可",
+                            title = stringResource(R.string.settings_licenses),
                             icon = AppIcons.Description,
                             onClick = { showLicenseDialog = true },
                             trailing = { Chevron() },
@@ -413,7 +435,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
 
     if (showThemeDialog) {
         ChoiceDialog(
-            title = "主题",
+            title = stringResource(R.string.settings_theme),
             options = THEME_OPTIONS,
             selected = s.themeMode,
             onSelect = { vm.setTheme(it); showThemeDialog = false },
@@ -425,9 +447,9 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
     }
     if (showSocks5Dialog) {
         com.easytier.android.ui.components.TextInputDialog(
-            title = "SOCKS5 端口",
+            title = stringResource(R.string.settings_socks5_port),
             initialValue = s.socks5Port.toString(),
-            label = "端口（1024 - 65535）",
+            label = stringResource(R.string.settings_port_dialog_label),
             onDismiss = { showSocks5Dialog = false },
             onConfirm = { text ->
                 // 非数字/越界不落库（此前会被静默吞掉或任意数字直接生效）
@@ -435,7 +457,11 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                 if (port != null && port in 1024..65535) {
                     vm.setSocks5(s.enableSocks5, port)
                 } else {
-                    scope.launch { snackbar.showSnackbar("端口需为 1024 - 65535 之间的数字") }
+                    scope.launch {
+                        snackbar.showSnackbar(
+                            context.getString(R.string.settings_port_invalid, 1024, 65535),
+                        )
+                    }
                 }
                 showSocks5Dialog = false
             },
@@ -446,15 +472,17 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
     LaunchedEffect(Unit) {
         vm.updateEvents.collect { event ->
             when (event) {
-                SettingsViewModel.UpdateUiEvent.UpToDate -> snackbar.showSnackbar("已是最新版本")
-                SettingsViewModel.UpdateUiEvent.Failed -> snackbar.showSnackbar("检查更新失败，请检查网络")
+                SettingsViewModel.UpdateUiEvent.UpToDate ->
+                    snackbar.showSnackbar(context.getString(R.string.settings_uptodate))
+                SettingsViewModel.UpdateUiEvent.Failed ->
+                    snackbar.showSnackbar(context.getString(R.string.settings_check_failed))
                 is SettingsViewModel.UpdateUiEvent.Newer -> updateDialogInfo = event.info
             }
         }
     }
     if (showUpdateIntervalDialog) {
         ChoiceDialog(
-            title = "自动检查更新",
+            title = stringResource(R.string.settings_auto_check_dialog_title),
             options = UPDATE_INTERVAL_OPTIONS,
             selected = s.updateCheckInterval,
             onSelect = { vm.setUpdateInterval(it); showUpdateIntervalDialog = false },
@@ -464,16 +492,16 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
     updateDialogInfo?.let { info ->
         AlertDialog(
             onDismissRequest = { updateDialogInfo = null },
-            title = { Text("发现新版本 v${info.version}") },
-            text = { Text(info.notes?.ifEmpty { null } ?: "点击前往发布页下载更新。") } ,
+            title = { Text(stringResource(R.string.update_new_version_title, info.version)) },
+            text = { Text(info.notes?.ifEmpty { null } ?: stringResource(R.string.update_new_version_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.url)))
                     updateDialogInfo = null
-                }) { Text("去更新") }
+                }) { Text(stringResource(R.string.update_go)) }
             },
             dismissButton = {
-                TextButton(onClick = { updateDialogInfo = null }) { Text("以后再说") }
+                TextButton(onClick = { updateDialogInfo = null }) { Text(stringResource(R.string.update_later)) }
             },
         )
     }
@@ -491,7 +519,7 @@ private fun Chevron() {
 @Composable
 private fun ChoiceDialog(
     title: String,
-    options: List<Pair<String, String>>,
+    options: List<Pair<String, Int>>,
     selected: String,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -501,7 +529,7 @@ private fun ChoiceDialog(
         title = { Text(title) },
         text = {
             Column {
-                options.forEach { (key, label) ->
+                options.forEach { (key, labelRes) ->
                     // 整行可点（带 RadioButton 语义）；选中即关闭，无需确认按钮
                     Row(
                         Modifier
@@ -516,7 +544,7 @@ private fun ChoiceDialog(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         RadioButton(selected = key == selected, onClick = null)
-                        Text(label)
+                        Text(stringResource(labelRes))
                     }
                 }
             }

@@ -50,7 +50,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
+import com.easytier.android.R
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
@@ -134,6 +137,7 @@ fun NetworksScreen(
     val serviceRunning by vm.serviceRunning.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var pendingDelete by remember { mutableStateOf<SavedNetwork?>(null) }
     var showImportDialog by remember { mutableStateOf(false) }
 
@@ -176,19 +180,22 @@ fun NetworksScreen(
                 ServiceHeroCard(
                     running = serviceRunning,
                     statusText = when {
-                        !serviceRunning && enabledCount == 0 -> "未运行 · 未勾选网络"
-                        !serviceRunning -> "未运行 · 已勾选 $enabledCount 个网络"
-                        else -> "运行中 · $activeCount/${networks.size} 个网络"
+                        !serviceRunning && enabledCount == 0 ->
+                            stringResource(R.string.networks_hero_not_running_no_selection)
+                        !serviceRunning ->
+                            stringResource(R.string.networks_hero_not_running, enabledCount)
+                        else ->
+                            stringResource(R.string.networks_hero_running, activeCount, networks.size)
                     },
                     headline = when {
                         runningInfos.isEmpty() -> null
                         runningInfos.size == 1 ->
                             runningInfos[0].second.myNodeInfo?.virtualIpv4?.toIpString()
-                        else -> "${runningInfos.size} 个网络运行中"
+                        else -> stringResource(R.string.networks_hero_multi_running, runningInfos.size)
                     },
                     // 箭头方向由 Hero 卡内图标表达，字符串不再带 ↑/↓ 前缀避免双重箭头
                     stats = if (!serviceRunning || runningInfos.isEmpty()) emptyList() else buildList {
-                        add("$nodeCount 个节点")
+                        add(stringResource(R.string.networks_hero_nodes, nodeCount))
                         add(Format.bytes(txTotal))
                         add(Format.bytes(rxTotal))
                     },
@@ -204,10 +211,10 @@ fun NetworksScreen(
             }
 
             item {
-                SectionHeader("我的网络") {
+                SectionHeader(stringResource(R.string.networks_mine)) {
                     TextButton(onClick = { showImportDialog = true }) {
                         Icon(AppIcons.Upload, null, Modifier.size(16.dp))
-                        Text("导入", Modifier.padding(start = 4.dp))
+                        Text(stringResource(R.string.common_import), Modifier.padding(start = 4.dp))
                     }
                 }
             }
@@ -220,13 +227,13 @@ fun NetworksScreen(
                     ) {
                         EmptyState(
                             icon = AppIcons.CloudOff,
-                            title = "还没有网络",
-                            hint = "点击右下角「新建网络」创建你的第一个组网\n或从 TOML 配置文件导入",
+                            title = stringResource(R.string.networks_empty_title),
+                            hint = stringResource(R.string.networks_empty_hint),
                         )
                         Spacer(Modifier.height(12.dp))
                         TextButton(onClick = { showImportDialog = true }) {
                             Icon(AppIcons.Upload, null, Modifier.size(18.dp))
-                            Text("导入 TOML 配置", Modifier.padding(start = 6.dp))
+                            Text(stringResource(R.string.networks_import_toml), Modifier.padding(start = 6.dp))
                         }
                     }
                 }
@@ -249,17 +256,22 @@ fun NetworksScreen(
         pendingDelete?.let { target ->
             AlertDialog(
                 onDismissRequest = { pendingDelete = null },
-                title = { Text("删除网络") },
-                text = { Text("确定删除「${target.config.networkName}」吗？") },
+                title = { Text(stringResource(R.string.networks_delete_title)) },
+                text = { Text(stringResource(R.string.networks_delete_message, target.config.networkName)) },
                 confirmButton = {
                     TextButton(onClick = {
                         pendingDelete = null
                         vm.delete(target)
-                        showSnack("已删除 ${target.config.networkName}")
-                    }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                        showSnack(context.getString(R.string.networks_deleted, target.config.networkName))
+                    }) {
+                        Text(
+                            stringResource(R.string.common_delete),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 },
                 dismissButton = {
-                    TextButton(onClick = { pendingDelete = null }) { Text("取消") }
+                    TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.common_cancel)) }
                 },
             )
         }
@@ -268,7 +280,7 @@ fun NetworksScreen(
         ExtendedFloatingActionButton(
             onClick = onCreateNetwork,
             icon = { Icon(Icons.Filled.Add, null) },
-            text = { Text("新建网络") },
+            text = { Text(stringResource(R.string.networks_new)) },
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
         )
@@ -281,11 +293,11 @@ fun NetworksScreen(
                 onImported = { cfg ->
                     showImportDialog = false
                     if (networks.any { it.config.networkName == cfg.networkName }) {
-                        showSnack("已存在同名网络「${cfg.networkName}」，请先修改其名称或删除")
+                        showSnack(context.getString(R.string.networks_import_dup, cfg.networkName))
                     } else {
                         scope.launch {
                             container.networksRepository.save(NetworksRepository.newNetwork(cfg))
-                            showSnack("已导入网络「${cfg.networkName}」，点击卡片可编辑")
+                            showSnack(context.getString(R.string.networks_imported, cfg.networkName))
                         }
                     }
                 },
@@ -310,13 +322,20 @@ private fun NetworkCard(
 ) {
     val accent = stateAccent(state)
     val haptics = LocalHapticFeedback.current
+    // semantics/customActions 与图标 contentDescription 处非 Composable 实参位置的闭包需提前解析
+    val editAction = stringResource(R.string.networks_a11y_edit)
+    val deleteAction = stringResource(R.string.networks_a11y_delete)
+    val swipeEditLabel = stringResource(R.string.networks_a11y_swipe_edit)
+    val swipeDeleteLabel = stringResource(R.string.networks_a11y_swipe_delete)
     val (subtitle, subtitleColor) = when (state) {
         is InstanceState.Running -> (
-            state.info.myNodeInfo?.virtualIpv4?.toIpString()?.let { "运行中 · $it" } ?: "运行中"
+            state.info.myNodeInfo?.virtualIpv4?.toIpString()
+                ?.let { stringResource(R.string.networks_state_running_ip, it) }
+                ?: stringResource(R.string.networks_state_running)
             ) to accent
-        is InstanceState.Starting -> "正在启动…" to accent
+        is InstanceState.Starting -> stringResource(R.string.state_starting) to accent
         is InstanceState.Error -> state.message to accent
-        null, InstanceState.Stopped -> network.config.networkingMethod.label() to
+        null, InstanceState.Stopped -> stringResource(network.config.networkingMethod.labelRes) to
             MaterialTheme.colorScheme.onSurfaceVariant
     }
 
@@ -343,8 +362,8 @@ private fun NetworkCard(
             // TalkBack 用户无法滑动，提供自定义操作直达编辑/删除
             .semantics {
                 customActions = listOf(
-                    CustomAccessibilityAction("编辑网络") { onEdit(); true },
-                    CustomAccessibilityAction("删除网络") { onDelete(); true },
+                    CustomAccessibilityAction(editAction) { onEdit(); true },
+                    CustomAccessibilityAction(deleteAction) { onDelete(); true },
                 )
             },
     ) {
@@ -364,7 +383,7 @@ private fun NetworkCard(
                     ) {
                         Icon(
                             Icons.Filled.Edit,
-                            "右滑编辑",
+                            swipeEditLabel,
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
@@ -378,7 +397,7 @@ private fun NetworkCard(
                     ) {
                         Icon(
                             Icons.Filled.Delete,
-                            "左滑删除",
+                            swipeDeleteLabel,
                             tint = MaterialTheme.colorScheme.onErrorContainer,
                         )
                     }
@@ -487,9 +506,3 @@ private fun RoundCheckbox(
     }
 }
 
-/** 未运行时副标题展示联网方式。 */
-private fun NetworkingMethod.label(): String = when (this) {
-    NetworkingMethod.PublicServer -> "公共服务器"
-    NetworkingMethod.Manual -> "手动连接"
-    NetworkingMethod.Standalone -> "单机网络"
-}

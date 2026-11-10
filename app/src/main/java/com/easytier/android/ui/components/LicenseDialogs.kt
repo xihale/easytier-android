@@ -23,12 +23,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.easytier.android.R
 
-/** 开源许可条目：组件名 + 协议 + 主页 + res/raw 内的许可证全文。 */
+/** 开源许可条目：组件名（资源，i18n）+ 协议 + 主页 + res/raw 内的许可证全文。 */
 private data class OssLicense(
-    val name: String,
+    @androidx.annotation.StringRes val nameRes: Int,
     val license: String,
     val url: String,
     val textRes: Int,
@@ -37,13 +38,13 @@ private data class OssLicense(
 private val OSS_LICENSES = listOf(
     // EasyTier 核心以预编译 .so 形式动态链接，LGPLv3 §4a 要求随分发副本附带显著声明与许可全文
     OssLicense(
-        name = "EasyTier 核心引擎",
+        nameRes = R.string.lic_core_name,
         license = "LGPL-3.0",
         url = "github.com/EasyTier/EasyTier",
         textRes = R.raw.license_lgpl_3,
     ),
     OssLicense(
-        name = "EasyTier Android",
+        nameRes = R.string.lic_app_name,
         license = "MIT",
         url = "github.com/xihale/easytier-android",
         textRes = R.raw.license_mit,
@@ -58,7 +59,7 @@ fun OssLicensesDialog(onDismiss: () -> Unit) {
     if (entry == null) {
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("开源许可") },
+            title = { Text(stringResource(R.string.lic_title)) },
             text = {
                 Column {
                     OSS_LICENSES.forEach { e ->
@@ -70,7 +71,7 @@ fun OssLicensesDialog(onDismiss: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
-                                Text(e.name, style = MaterialTheme.typography.bodyLarge)
+                                Text(stringResource(e.nameRes), style = MaterialTheme.typography.bodyLarge)
                                 Text(
                                     "${e.license} · ${e.url}",
                                     style = MaterialTheme.typography.bodySmall,
@@ -87,7 +88,7 @@ fun OssLicensesDialog(onDismiss: () -> Unit) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = onDismiss) { Text("关闭") }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
             },
         )
     } else {
@@ -106,7 +107,7 @@ private fun LicenseTextDialog(entry: OssLicense, onBack: () -> Unit) {
         onDismissRequest = onBack,
         title = {
             Column {
-                Text(entry.name)
+                Text(stringResource(entry.nameRes))
                 Text(
                     entry.license,
                     style = MaterialTheme.typography.bodySmall,
@@ -124,7 +125,7 @@ private fun LicenseTextDialog(entry: OssLicense, onBack: () -> Unit) {
             )
         },
         confirmButton = {
-            TextButton(onClick = onBack) { Text("返回") }
+            TextButton(onClick = onBack) { Text(stringResource(R.string.common_back)) }
         },
     )
 }

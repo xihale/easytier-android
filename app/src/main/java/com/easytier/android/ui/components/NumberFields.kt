@@ -10,7 +10,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import com.easytier.android.R
 
 /** 数字输入框：本地持有文本，合法才提交；range 外/空值给 isError 提示，不再把非法输入静默改成默认值。 */
 @Composable
@@ -73,6 +75,12 @@ private fun <T : Comparable<T>> NumberFieldImpl(
     // 以外部 value 为 key：提交成功才重置文本；非法暂存期间（未提交）不覆盖用户输入
     var text by remember(value) { mutableStateOf(value?.toString() ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
+    // 预先解析文案：submit 是普通 lambda，不能调用 Composable stringResource
+    val errEmpty = stringResource(R.string.number_err_empty)
+    val errNan = stringResource(R.string.number_err_nan)
+    val errRange = range?.let {
+        stringResource(R.string.number_err_range, it.start.toString(), it.endInclusive.toString())
+    }
 
     fun submit(raw: String) {
         val parsed = parse(raw)
@@ -81,11 +89,10 @@ private fun <T : Comparable<T>> NumberFieldImpl(
                 error = null
                 onValueChange(null)
             } else {
-                error = "不能为空"
+                error = errEmpty
             }
-            parsed == null -> error = "请输入数字"
-            range != null && parsed !in range ->
-                error = "需在 ${range.start} - ${range.endInclusive} 之间"
+            parsed == null -> error = errNan
+            range != null && parsed !in range -> error = errRange
             else -> {
                 error = null
                 onValueChange(parsed)

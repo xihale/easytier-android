@@ -48,6 +48,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.stringResource
+import com.easytier.android.R
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -140,9 +142,10 @@ fun StatusScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    val copiedLabel = stringResource(R.string.common_copied)
     val copyIpToClipboard: (String) -> Unit = { ip ->
         clipboard.setText(AnnotatedString(ip))
-        scope.launch { snackbarHostState.showSnackbar("已复制") }
+        scope.launch { snackbarHostState.showSnackbar(copiedLabel) }
     }
     // 单击节点卡打开详情对话框；长按复制 IP
     var selectedPeer by remember { mutableStateOf<TaggedPeer?>(null) }
@@ -179,7 +182,6 @@ fun StatusScreen(
     val txTotal = running.sumOf { (_, info) ->
         info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.txBytesLong ?: 0 } }
     }
-
     // 外层 Box 承载内容与全局 SnackbarHost；空状态与列表两个分支都包在 Box 内
     Box(Modifier.fillMaxSize()) {
         if (running.isEmpty()) {
@@ -190,11 +192,11 @@ fun StatusScreen(
                 EmptyState(
                     icon = AppIcons.CloudOff,
                     title = when {
-                        error != null -> "实例出错"
-                        starting -> "正在启动…"
-                        else -> "没有运行中的实例"
+                        error != null -> stringResource(R.string.status_empty_error)
+                        starting -> stringResource(R.string.state_starting)
+                        else -> stringResource(R.string.status_empty_none)
                     },
-                    hint = error?.message ?: "回到「网络」页打开一个网络的开关",
+                    hint = error?.message ?: stringResource(R.string.status_empty_hint),
                 )
             }
         } else {
@@ -215,12 +217,12 @@ fun StatusScreen(
                     )
                 }
 
-                item { SectionHeader("对等节点 · ${taggedPeers.size}") }
+                item { SectionHeader(stringResource(R.string.status_peers_header, taggedPeers.size)) }
                 if (taggedPeers.isEmpty()) {
                     item {
                         AppCard {
                             Text(
-                                "暂无对等节点，等待其他节点加入…",
+                                stringResource(R.string.status_peers_empty),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(16.dp),
@@ -317,6 +319,8 @@ private fun NodeInfoCard(
     var expanded by remember { mutableStateOf(false) }
     val chevronRotation by animateFloatAsState(if (expanded) 180f else 0f, tween(200), label = "chevron")
     val single = running.singleOrNull()?.second
+    val hostLabel = stringResource(R.string.status_hostname)
+    val copyIpLabel = stringResource(R.string.common_copy_ip)
 
     AppCard(Modifier.animateContentSize(animationSpec = tween(200))) {
         Column(Modifier.padding(16.dp).fillMaxWidth()) {
@@ -326,7 +330,7 @@ private fun NodeInfoCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "本机节点",
+                    stringResource(R.string.status_local_node),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -335,7 +339,7 @@ private fun NodeInfoCard(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        if (expanded) "收起" else "详情",
+                        if (expanded) stringResource(R.string.common_collapse) else stringResource(R.string.common_details),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -360,11 +364,11 @@ private fun NodeInfoCard(
                             .padding(top = 8.dp)
                             // 点击 IP 复制到剪贴板；clip 让涟漪不超出文本区域
                             .clip(MaterialTheme.shapes.small)
-                            .clickable(onClickLabel = "复制 IP 地址") { onCopyIp(ip) },
+                            .clickable(onClickLabel = copyIpLabel) { onCopyIp(ip) },
                     )
                 }
                 Column(Modifier.padding(top = 8.dp)) {
-                    InfoRow("主机名", single.myNodeInfo?.hostname ?: "--")
+                    InfoRow(hostLabel, single.myNodeInfo?.hostname ?: "--")
                     // myNodeInfo 为 null 时 toString() 会显示字面量 "null"，改为占位符
                     InfoRow("Peer ID", single.myNodeInfo?.peerId?.takeIf { it != 0L }?.toString() ?: "--")
                     if (expanded) NodeDetails(single)
@@ -376,7 +380,7 @@ private fun NodeInfoCard(
                         InfoRow(name, ip)
                         if (expanded) {
                             Column(Modifier.padding(start = 4.dp, bottom = 8.dp)) {
-                                InfoRow("主机名", info.myNodeInfo?.hostname ?: "--")
+                                InfoRow(hostLabel, info.myNodeInfo?.hostname ?: "--")
                                 InfoRow("Peer ID", info.myNodeInfo?.peerId?.takeIf { it != 0L }?.toString() ?: "--")
                                 NodeDetails(info)
                             }
@@ -391,26 +395,31 @@ private fun NodeInfoCard(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NodeDetails(info: NetworkInstanceRunningInfo) {
+    val natTypeLabel = stringResource(R.string.status_nat_type)
+    val publicIpLabel = stringResource(R.string.status_public_ip)
+    val versionLabel = stringResource(R.string.status_version)
+    val listenersLabel = stringResource(R.string.status_listeners)
+    val noListenersLabel = stringResource(R.string.status_no_listeners)
     info.myNodeInfo?.stunInfo?.let { stun ->
-        InfoRow("NAT 类型", stun.udpNatType.label)
+        InfoRow(natTypeLabel, stringResource(stun.udpNatType.labelRes))
         stun.publicIps().takeIf { it.isNotEmpty() }?.let { ips ->
-            InfoRow("公网 IP", ips.joinToString("\n"))
+            InfoRow(publicIpLabel, ips.joinToString("\n"))
         }
     }
-    InfoRow("版本", info.myNodeInfo?.version ?: "--")
+    InfoRow(versionLabel, info.myNodeInfo?.version ?: "--")
     val listeners = info.myNodeInfo?.publicListeners().orEmpty()
     // 监听行：与 InfoRow 相同的「标签左 / 内容右」结构；FlowRow 负责换行，
     // 横向 spacedBy 是关键——否则同一行的胶囊会直接贴在一起
     Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.Top) {
         Text(
-            "监听",
+            listenersLabel,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(end = 12.dp),
         )
         if (listeners.isEmpty()) {
             Text(
-                "无对外监听",
+                noListenersLabel,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.End,
@@ -438,16 +447,18 @@ private fun TrafficCard(
     rxTotal: Long,
     txTotal: Long,
 ) {
+    val downLabel = stringResource(R.string.status_downlink)
+    val upLabel = stringResource(R.string.status_uplink)
     AppCard {
         Column(Modifier.padding(16.dp)) {
-            Text("流量", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.status_traffic), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
             RateChart(rxHistory = rxHistory, txHistory = txHistory)
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth()) {
                 TrafficStat(
                     icon = AppIcons.ArrowDownward,
-                    label = "下行",
+                    label = downLabel,
                     rate = Format.bps(rxRate),
                     total = Format.bytes(rxTotal),
                     tint = MaterialTheme.colorScheme.primary,
@@ -455,7 +466,7 @@ private fun TrafficCard(
                 )
                 TrafficStat(
                     icon = AppIcons.ArrowUpward,
-                    label = "上行",
+                    label = upLabel,
                     rate = Format.bps(txRate),
                     total = Format.bytes(txTotal),
                     tint = MaterialTheme.colorScheme.tertiary,
@@ -494,7 +505,7 @@ private fun TrafficStat(
             modifier = Modifier.padding(top = 2.dp),
         )
         Text(
-            "累计 $total",
+            stringResource(R.string.status_total, total),
             style = MaterialTheme.typography.labelMedium,
             fontFamily = FontFamily.Monospace,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -524,24 +535,32 @@ private fun PeerCard(
     val hostname = route.hostname.takeIf { it.isNotBlank() } ?: "peer-${route.peerId}"
     val ip = route.ipv4Addr?.toIpString() ?: "--"
     val proto = conn?.tunnel?.protoLabel
+    val connectingLabel = stringResource(R.string.status_peer_connecting)
+    val latencyFmt = stringResource(R.string.status_peer_latency)
+    val viewPeerLabel = stringResource(R.string.status_a11y_view_peer)
+    val copyIpLabel = stringResource(R.string.common_copy_ip)
     val costLabel = when {
-        route.isPublicServer -> "公共服务器"
-        isDirect && proto != null -> "P2P · $proto"
-        isDirect -> "P2P"
-        else -> "中转(${route.cost})"
+        route.isPublicServer -> stringResource(R.string.method_public_server)
+        isDirect && proto != null -> stringResource(R.string.status_cost_p2p_proto, proto)
+        isDirect -> stringResource(R.string.status_cost_p2p)
+        else -> stringResource(R.string.status_cost_relay, route.cost)
     }
 
     // 延迟分级：连接中/未知用中性色；<80 良好，<200 一般，其余较差（规则见 peerLatencyBadge）
     val badge = peerLatencyBadge(connLatencyRaw, route.pathLatency)
-    val (latencyText, latencyContainer, latencyLabel) = when (badge.tier) {
-        LatencyTier.NEUTRAL -> Triple(
-            badge.text,
+    val latencyText = if (badge.connecting) {
+        connectingLabel
+    } else {
+        latencyFmt.format(badge.latencyMs ?: 0L)
+    }
+    val (latencyContainer, latencyLabel) = when (badge.tier) {
+        LatencyTier.NEUTRAL -> Pair(
             MaterialTheme.colorScheme.surfaceContainerHigh,
             MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        LatencyTier.GOOD -> Triple(badge.text, statusColors.successContainer, statusColors.onSuccessContainer)
-        LatencyTier.FAIR -> Triple(badge.text, statusColors.warningContainer, statusColors.onWarningContainer)
-        LatencyTier.BAD -> Triple(badge.text, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+        LatencyTier.GOOD -> Pair(statusColors.successContainer, statusColors.onSuccessContainer)
+        LatencyTier.FAIR -> Pair(statusColors.warningContainer, statusColors.onWarningContainer)
+        LatencyTier.BAD -> Pair(MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
     }
 
     AppCard {
@@ -549,8 +568,8 @@ private fun PeerCard(
             Modifier
                 .fillMaxWidth()
                 .combinedClickable(
-                    onClickLabel = "查看节点详情",
-                    onLongClickLabel = "复制 IP 地址",
+                    onClickLabel = viewPeerLabel,
+                    onLongClickLabel = copyIpLabel,
                     onClick = onClick,
                     onLongClick = onLongClick,
                 )
@@ -618,7 +637,7 @@ private fun PeerCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    if (loss > 0.5f) "丢包 %.1f%%".format(loss) else "丢包 0%",
+                    stringResource(R.string.status_loss, if (loss > 0.5f) "%.1f".format(loss) else "0"),
                     style = MaterialTheme.typography.labelMedium,
                     color = if (loss > 5f) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -657,11 +676,33 @@ private fun PeerDetailDialog(
     val stats = conn?.stats
     val hostname = route.hostname.takeIf { it.isNotBlank() } ?: "peer-${route.peerId}"
     val ip = route.ipv4Addr?.toIpString()
+    val hostLabel = stringResource(R.string.status_hostname)
+    val versionLabel = stringResource(R.string.status_version)
+    val natTypeLabel = stringResource(R.string.status_nat_type)
+    val basicSection = stringResource(R.string.status_dialog_basic)
+    val routeSection = stringResource(R.string.status_dialog_route)
+    val tunnelSection = stringResource(R.string.status_dialog_tunnel)
+    val connTypeLabelTitle = stringResource(R.string.status_conn_type)
+    val routeCostLabel = stringResource(R.string.status_route_cost)
+    val pathLatencyLabel = stringResource(R.string.status_path_latency)
+    val nextHopLabel = stringResource(R.string.status_next_hop)
+    val nextHopNone = stringResource(R.string.status_next_hop_none)
+    val nextHopFmt = stringResource(R.string.status_next_hop_peer)
+    val proxyCidrsLabel = stringResource(R.string.status_proxy_cidrs)
+    val protoLabel = stringResource(R.string.status_proto)
+    val localAddrLabel = stringResource(R.string.status_local_addr)
+    val remoteAddrLabel = stringResource(R.string.status_remote_addr)
+    val latencyLabel = stringResource(R.string.status_latency)
+    val rxTxLabel = stringResource(R.string.status_rx_tx)
+    val lossRateLabel = stringResource(R.string.status_loss_rate)
+    val connIdLabel = stringResource(R.string.status_conn_id)
+    val latencyFmt = stringResource(R.string.status_peer_latency)
+    val copyIpLabel = stringResource(R.string.common_copy_ip)
     // 与卡片徽标一致的三态：公共服务器 / P2P 直连 / 中转
     val connTypeLabel = when {
-        route.isPublicServer -> "公共服务器"
-        route.isDirect -> "P2P 直连"
-        else -> "中转"
+        route.isPublicServer -> stringResource(R.string.method_public_server)
+        route.isDirect -> stringResource(R.string.status_conn_p2p)
+        else -> stringResource(R.string.status_conn_relay)
     }
 
     AlertDialog(
@@ -686,7 +727,7 @@ private fun PeerDetailDialog(
                     Row(
                         Modifier
                             .clip(MaterialTheme.shapes.small)
-                            .clickable(onClickLabel = "复制 IP 地址") { onCopyIp(ip) }
+                            .clickable(onClickLabel = copyIpLabel) { onCopyIp(ip) }
                             .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -705,50 +746,50 @@ private fun PeerDetailDialog(
                     }
                 }
 
-                DetailSection("基本信息")
-                InfoRow("主机名", route.hostname.ifBlank { "--" }, monospace = false)
+                DetailSection(basicSection)
+                InfoRow(hostLabel, route.hostname.ifBlank { "--" }, monospace = false)
                 InfoRow("Peer ID", route.peerId.toString())
-                InfoRow("版本", route.version.ifBlank { "--" })
-                route.stunInfo?.let { InfoRow("NAT 类型", it.udpNatType.label, monospace = false) }
+                InfoRow(versionLabel, route.version.ifBlank { "--" })
+                route.stunInfo?.let { InfoRow(natTypeLabel, stringResource(it.udpNatType.labelRes), monospace = false) }
 
-                DetailSection("路由")
-                InfoRow("连接方式", connTypeLabel, monospace = false)
-                InfoRow("路由代价", route.cost.toString())
+                DetailSection(routeSection)
+                InfoRow(connTypeLabelTitle, connTypeLabel, monospace = false)
+                InfoRow(routeCostLabel, route.cost.toString())
                 InfoRow(
-                    "路径延迟",
-                    if (route.pathLatency > 0) "${route.pathLatency} ms" else "--",
+                    pathLatencyLabel,
+                    if (route.pathLatency > 0) latencyFmt.format(route.pathLatency) else "--",
                 )
                 InfoRow(
-                    "下一跳",
+                    nextHopLabel,
                     when {
                         route.nextHopPeerId == 0L -> "--"
-                        route.nextHopPeerId == route.peerId -> "无"
-                        else -> hostnames[route.nextHopPeerId] ?: "Peer ${route.nextHopPeerId}"
+                        route.nextHopPeerId == route.peerId -> nextHopNone
+                        else -> hostnames[route.nextHopPeerId] ?: nextHopFmt.format(route.nextHopPeerId)
                     },
                     monospace = false,
                 )
                 if (route.proxyCidrs.isNotEmpty()) {
-                    InfoRow("代理网段", route.proxyCidrs.joinToString("\n"))
+                    InfoRow(proxyCidrsLabel, route.proxyCidrs.joinToString("\n"))
                 }
 
                 if (conn != null) {
-                    DetailSection("连接隧道")
+                    DetailSection(tunnelSection)
                     conn.tunnel?.let { tunnel ->
-                        InfoRow("协议", tunnel.protoLabel)
-                        tunnel.localAddr?.url?.takeIf { it.isNotBlank() }?.let { InfoRow("本地地址", it) }
-                        tunnel.remoteAddr?.url?.takeIf { it.isNotBlank() }?.let { InfoRow("远程地址", it) }
+                        InfoRow(protoLabel, tunnel.protoLabel)
+                        tunnel.localAddr?.url?.takeIf { it.isNotBlank() }?.let { InfoRow(localAddrLabel, it) }
+                        tunnel.remoteAddr?.url?.takeIf { it.isNotBlank() }?.let { InfoRow(remoteAddrLabel, it) }
                     }
                     stats?.let {
-                        InfoRow("延迟", if (it.latencyMs > 0) "${it.latencyMs} ms" else "--")
-                        InfoRow("收 / 发", "↓ ${Format.bytes(it.rxBytesLong)} / ↑ ${Format.bytes(it.txBytesLong)}")
+                        InfoRow(latencyLabel, if (it.latencyMs > 0) latencyFmt.format(it.latencyMs) else "--")
+                        InfoRow(rxTxLabel, "↓ ${Format.bytes(it.rxBytesLong)} / ↑ ${Format.bytes(it.txBytesLong)}")
                     }
-                    InfoRow("丢包率", "%.1f%%".format((conn.lossRate) * 100))
-                    if (conn.connId.isNotBlank()) InfoRow("连接 ID", conn.connId)
+                    InfoRow(lossRateLabel, "%.1f%%".format((conn.lossRate) * 100))
+                    if (conn.connId.isNotBlank()) InfoRow(connIdLabel, conn.connId)
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
         },
     )
 }

@@ -59,17 +59,17 @@ class PeerLatencyBadgeTest {
     fun `unmeasured latency shows connecting`() {
         // EasyTier 用 1000ms（1000000us）表示未测得
         assertEquals(
-            PeerLatencyBadge(true, "连接中", LatencyTier.NEUTRAL),
+            PeerLatencyBadge(true, null, LatencyTier.NEUTRAL),
             peerLatencyBadge(connLatencyMs = 1000, pathLatency = 0),
         )
         // 0ms 同样视为未测得
         assertEquals(
-            PeerLatencyBadge(true, "连接中", LatencyTier.NEUTRAL),
+            PeerLatencyBadge(true, null, LatencyTier.NEUTRAL),
             peerLatencyBadge(connLatencyMs = 0, pathLatency = 0),
         )
         // 无直连隧道且无路径延迟
         assertEquals(
-            PeerLatencyBadge(true, "连接中", LatencyTier.NEUTRAL),
+            PeerLatencyBadge(true, null, LatencyTier.NEUTRAL),
             peerLatencyBadge(connLatencyMs = null, pathLatency = 0),
         )
     }
@@ -77,7 +77,7 @@ class PeerLatencyBadgeTest {
     @Test
     fun `measured latency falls back to path latency when unmeasured`() {
         val badge = peerLatencyBadge(connLatencyMs = 1500, pathLatency = 42)
-        assertEquals(PeerLatencyBadge(false, "42 ms", LatencyTier.GOOD), badge)
+        assertEquals(PeerLatencyBadge(false, 42L, LatencyTier.GOOD), badge)
     }
 
     @Test
@@ -87,13 +87,13 @@ class PeerLatencyBadgeTest {
         assertEquals(LatencyTier.FAIR, peerLatencyBadge(80, 0).tier)
         assertEquals(LatencyTier.FAIR, peerLatencyBadge(199, 0).tier)
         assertEquals(LatencyTier.BAD, peerLatencyBadge(200, 0).tier)
-        assertEquals("123 ms", peerLatencyBadge(123, 999).text)
+        assertEquals(123L, peerLatencyBadge(123, 999).latencyMs)
     }
 
     @Test
     fun `path latency is not shown as connecting when positive`() {
         // 纯中转：无直连隧道但有路径延迟，应显示路径延迟而非「连接中」
         val badge = peerLatencyBadge(connLatencyMs = null, pathLatency = 250)
-        assertEquals(PeerLatencyBadge(false, "250 ms", LatencyTier.BAD), badge)
+        assertEquals(PeerLatencyBadge(false, 250L, LatencyTier.BAD), badge)
     }
 }

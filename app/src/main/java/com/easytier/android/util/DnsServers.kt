@@ -1,5 +1,7 @@
 package com.easytier.android.util
 
+import com.easytier.android.R
+
 /**
  * Magic DNS 上游服务器（dns_forward_servers flag）的格式校验与预置建议。
  *
@@ -44,12 +46,12 @@ object DnsServers {
         return true
     }
 
-    /** 常用公共 DoT/DoH 预置。 */
+    /** 常用公共 DoT/DoH 预置。标签为字符串资源，UI 侧解析（i18n）。 */
     val PRESETS = listOf(
-        "https://dns.alidns.com/dns-query" to "阿里 DoH",
-        "tls://dns.alidns.com" to "阿里 DoT",
-        "https://doh.pub/dns-query" to "腾讯 DoH",
-        "tls://dot.pub" to "腾讯 DoT",
-        "https://doh.360.cn/dns-query" to "360 DoH",
+        "https://dns.alidns.com/dns-query" to R.string.dns_preset_ali_doh,
+        "tls://dns.alidns.com" to R.string.dns_preset_ali_dot,
+        "https://doh.pub/dns-query" to R.string.dns_preset_qcloud_doh,
+        "tls://dot.pub" to R.string.dns_preset_qcloud_dot,
+        "https://doh.360.cn/dns-query" to R.string.dns_preset_360_doh,
     )
 }

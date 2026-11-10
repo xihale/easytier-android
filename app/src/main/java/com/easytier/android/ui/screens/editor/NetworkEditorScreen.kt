@@ -49,11 +49,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.easytier.android.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -90,6 +93,9 @@ private val FormHorizontalPadding = Modifier.padding(horizontal = 16.dp)
 
 /** 编辑页 ViewModel。 */
 class EditorViewModel(val container: AppContainer) : ViewModel() {
+
+    /** 非 Composable 作用域取本地化文案用。 */
+    private val appContext = container.appContext
 
     private val _network = MutableStateFlow<SavedNetwork?>(null)
     val network = _network.asStateFlow()
@@ -144,12 +150,12 @@ class EditorViewModel(val container: AppContainer) : ViewModel() {
             val name = current.config.networkName.trim()
             when {
                 name.isBlank() -> {
-                    _saveError.value = "网络名称不能为空"
+                    _saveError.value = appContext.getString(R.string.editor_err_empty_name)
                     return@launch
                 }
                 container.networksRepository.networks.first()
                     .any { it.id != current.id && it.config.networkName == name } -> {
-                    _saveError.value = "已存在同名网络「$name」，请修改名称后再保存"
+                    _saveError.value = appContext.getString(R.string.editor_err_dup_name, name)
                     return@launch
                 }
             }
@@ -170,7 +176,10 @@ class EditorViewModel(val container: AppContainer) : ViewModel() {
                     val enabledNetworks = container.networksRepository.networks.first()
                         .filter { it.enabled }
                     container.vpnController.startService(enabledNetworks)
-                        .onFailure { _saveError.value = it.message ?: "启动服务失败" }
+                        .onFailure {
+                            _saveError.value = it.message
+                                ?: appContext.getString(R.string.editor_err_start_failed)
+                        }
                 }
             }
             onSaved(updated.id)
@@ -194,6 +203,7 @@ fun NetworkEditorScreen(
     val saveError by vm.saveError.collectAsState()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     // 保存被拦截（空名/重名/启动失败）时提示；空名/重名不离开编辑页
     LaunchedEffect(saveError) {
@@ -242,18 +252,22 @@ fun NetworkEditorScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = ::attemptBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back))
                 }
                 Text(
-                    if (networkId == null) "新建网络" else "编辑网络",
+                    if (networkId == null) {
+                        stringResource(R.string.editor_new)
+                    } else {
+                        stringResource(R.string.editor_edit)
+                    },
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = { showImportDialog = true }) {
-                    Icon(AppIcons.Upload, "导入 TOML")
+                    Icon(AppIcons.Upload, stringResource(R.string.editor_import_toml))
                 }
                 IconButton(onClick = { showExportDialog = true }) {
-                    Icon(AppIcons.Download, "导出 TOML")
+                    Icon(AppIcons.Download, stringResource(R.string.editor_export_toml))
                 }
             }
         },
@@ -263,11 +277,15 @@ fun NetworkEditorScreen(
         Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
             // 分段标签
             TabRow(selectedTabIndex = tab) {
-                listOf("基本", "高级", "端口转发").forEachIndexed { i, label ->
+                listOf(
+                    R.string.editor_tab_basic,
+                    R.string.editor_tab_advanced,
+                    R.string.editor_tab_port_forward,
+                ).forEachIndexed { i, labelRes ->
                     Tab(
                         selected = tab == i,
                         onClick = { tab = i },
-                        text = { Text(label) },
+                        text = { Text(stringResource(labelRes)) },
                     )
                 }
             }
@@ -282,10 +300,10 @@ fun NetworkEditorScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         EmptyState(
                             icon = AppIcons.CloudOff,
-                            title = "网络不存在",
-                            hint = "该网络可能已被删除",
+                            title = stringResource(R.string.editor_not_found_title),
+                            hint = stringResource(R.string.editor_not_found_hint),
                         )
-                        TextButton(onClick = onBack) { Text("返回") }
+                        TextButton(onClick = onBack) { Text(stringResource(R.string.common_back)) }
                     }
                 }
                 saved == null -> Box(
@@ -338,14 +356,14 @@ fun NetworkEditorScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             Icon(AppIcons.Save, null, Modifier.size(18.dp))
-                            Text("保存", Modifier.padding(start = 6.dp))
+                            Text(stringResource(R.string.editor_save), Modifier.padding(start = 6.dp))
                         }
                         Button(
                             onClick = saveAndEnableWithPermission,
                             modifier = Modifier.weight(1f),
                         ) {
                             Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
-                            Text("保存并启用", Modifier.padding(start = 6.dp))
+                            Text(stringResource(R.string.editor_save_and_enable), Modifier.padding(start = 6.dp))
                         }
                     }
                 }
@@ -355,9 +373,9 @@ fun NetworkEditorScreen(
 
     if (showDiscardDialog) {
         ConfirmDialog(
-            title = "放弃修改？",
-            text = "有未保存的修改，离开将丢失这些改动。",
-            confirmText = "放弃",
+            title = stringResource(R.string.editor_discard_title),
+            text = stringResource(R.string.editor_discard_text),
+            confirmText = stringResource(R.string.editor_discard_confirm),
             destructive = true,
             onConfirm = {
                 showDiscardDialog = false
@@ -373,7 +391,9 @@ fun NetworkEditorScreen(
             onImported = { cfg ->
                 vm.update { cfg }
                 showImportDialog = false
-                scope.launch { snackbar.showSnackbar("已导入配置「${cfg.networkName}」，记得保存") }
+                scope.launch {
+                    snackbar.showSnackbar(context.getString(R.string.editor_imported_snack, cfg.networkName))
+                }
             },
         )
     }
@@ -396,12 +416,16 @@ fun NetworkEditorScreen(
 @Composable
 private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkConfig) -> Unit) {
     var showSecret by remember { mutableStateOf(false) }
+    val hideLabel = stringResource(R.string.editor_hide)
+    val showLabel = stringResource(R.string.editor_show)
+    val prefixLenLabel = stringResource(R.string.editor_prefix_len)
+    val initialPeersLabel = stringResource(R.string.editor_initial_peers)
 
-    SectionHeader("基本设置", modifier = FormHorizontalPadding)
+    SectionHeader(stringResource(R.string.editor_section_basic), modifier = FormHorizontalPadding)
     OutlinedTextField(
         value = config.networkName,
         onValueChange = { v -> update { it.copy(networkName = v) } },
-        label = { Text("网络名称") },
+        label = { Text(stringResource(R.string.editor_name)) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
     )
@@ -409,15 +433,15 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
     OutlinedTextField(
         value = config.networkSecret ?: "",
         onValueChange = { v -> update { it.copy(networkSecret = v.ifBlank { null }) } },
-        label = { Text("网络密钥") },
-        placeholder = { Text("网络成员共享的密码") },
+        label = { Text(stringResource(R.string.editor_secret)) },
+        placeholder = { Text(stringResource(R.string.editor_secret_hint)) },
         singleLine = true,
         visualTransformation = if (showSecret) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
             // 更轻的显隐切换：IconButton 承载小号中性色文字，作为输入框附属操作而非独立按钮
             IconButton(onClick = { showSecret = !showSecret }) {
                 Text(
-                    if (showSecret) "隐藏" else "显示",
+                    if (showSecret) showLabel else hideLabel,
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -429,14 +453,14 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
 
     // DHCP
     SwitchRow(
-        title = "DHCP（自动分配）",
-        subtitle = "关闭后手动指定虚拟 IPv4",
+        title = stringResource(R.string.editor_dhcp),
+        subtitle = stringResource(R.string.editor_dhcp_subtitle),
         checked = config.dhcp,
         onCheckedChange = { v -> update { it.copy(dhcp = v) } },
     )
     if (config.dhcp && config.networkingMethod == NetworkingMethod.Standalone) {
         Text(
-            "注意：独立网络无其他节点，DHCP 无法分配地址，请关闭并手动指定虚拟 IPv4。",
+            stringResource(R.string.editor_standalone_dhcp_warn),
             modifier = FormHorizontalPadding,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error,
@@ -450,14 +474,14 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
             OutlinedTextField(
                 value = config.virtualIpv4 ?: "",
                 onValueChange = { v -> update { it.copy(virtualIpv4 = v) } },
-                label = { Text("虚拟 IPv4") },
+                label = { Text(stringResource(R.string.editor_virtual_ipv4)) },
                 singleLine = true,
                 modifier = Modifier.weight(2f),
             )
             IntField(
                 value = config.networkLength,
                 onValueChange = { v -> update { it.copy(networkLength = v ?: 24) } },
-                label = "前缀长度",
+                label = prefixLenLabel,
                 range = 0..32,
                 allowEmpty = false,
                 modifier = Modifier.weight(1f),
@@ -467,7 +491,7 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
     }
 
     // 连接方式
-    SectionHeader("联网方式", modifier = FormHorizontalPadding)
+    SectionHeader(stringResource(R.string.editor_section_networking), modifier = FormHorizontalPadding)
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().then(FormHorizontalPadding)) {
         NetworkingMethod.entries.forEachIndexed { i, method ->
             SegmentedButton(
@@ -475,7 +499,7 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
                 onClick = { update { it.copy(networkingMethod = method) } },
                 shape = SegmentedButtonDefaults.itemShape(i, NetworkingMethod.entries.size),
             ) {
-                Text(method.label)
+                Text(stringResource(method.labelRes))
             }
         }
     }
@@ -484,31 +508,31 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
         NetworkingMethod.PublicServer -> OutlinedTextField(
             value = config.publicServerUrl ?: "",
             onValueChange = { v -> update { it.copy(publicServerUrl = v) } },
-            label = { Text("公共服务器 URL") },
+            label = { Text(stringResource(R.string.editor_public_server_url)) },
             placeholder = { Text("tcp://public.easytier.cn:11010") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
         )
         NetworkingMethod.Manual -> StringListEditor(
-            label = "初始节点（Peer）",
+            label = initialPeersLabel,
             items = config.peerUrls,
             onChange = { list -> update { it.copy(peerUrls = list) } },
             placeholder = "tcp://203.0.113.10:11010",
             modifier = FormHorizontalPadding,
         )
         NetworkingMethod.Standalone -> Text(
-            "独立模式：不连接任何节点，等待其他节点主动连接本机。",
+            stringResource(R.string.editor_standalone_desc),
             modifier = FormHorizontalPadding,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 
-    SectionHeader("运行选项", modifier = FormHorizontalPadding)
+    SectionHeader(stringResource(R.string.editor_section_runtime), modifier = FormHorizontalPadding)
     // 基本页最后一行，不画分割线
     SwitchRow(
-        title = "作为出口节点",
-        subtitle = "允许其他节点将本机作为出口网关",
+        title = stringResource(R.string.editor_exit_node),
+        subtitle = stringResource(R.string.editor_exit_node_subtitle),
         checked = config.enableExitNode ?: false,
         onCheckedChange = { v -> update { it.copy(enableExitNode = v) } },
     )
@@ -519,69 +543,75 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
 @Composable
 private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkConfig) -> Unit) {
     var showAllFlags by remember { mutableStateOf(false) }
+    val collapseLabel = stringResource(R.string.common_collapse)
+    val hostnameLabel = stringResource(R.string.editor_hostname)
+    val proxyCidrsLabel = stringResource(R.string.editor_proxy_cidrs)
+    val mtuLabel = stringResource(R.string.editor_mtu)
+    val listenersLabel = stringResource(R.string.editor_listeners)
+    val routeTableLabel = stringResource(R.string.editor_route_table)
+    val whitelistCidrsLabel = stringResource(R.string.editor_whitelist_cidrs)
+    val recvBpsLimitLabel = stringResource(R.string.editor_recv_bps_limit)
+    val exitNodesLabel = stringResource(R.string.editor_exit_nodes)
 
-    SectionHeader("功能开关", modifier = FormHorizontalPadding)
-    SwitchRow("延迟优先", config.latencyFirst ?: false) { v -> update { it.copy(latencyFirst = v) } }
-    SwitchRow("使用 SmolTCP", config.useSmoltcp ?: false) { v -> update { it.copy(useSmoltcp = v) } }
-    SwitchRow("禁用 IPv6", config.disableIpv6 ?: false) { v -> update { it.copy(disableIpv6 = v) } }
-    SwitchRow("KCP 代理", config.enableKcpProxy ?: false) { v -> update { it.copy(enableKcpProxy = v) } }
-    SwitchRow("禁用 P2P", config.disableP2p ?: false) { v -> update { it.copy(disableP2p = v) } }
-    SwitchRow("无 TUN 模式", config.noTun ?: false) { v -> update { it.copy(noTun = v) } }
-    SwitchRow("Magic DNS", config.enableMagicDns, subtitle = "用「主机名.后缀」访问组网设备") { v -> update { it.copy(enableMagicDns = v) } }
+    SectionHeader(stringResource(R.string.editor_section_flags), modifier = FormHorizontalPadding)
+    SwitchRow(stringResource(R.string.flag_latency_first), config.latencyFirst ?: false) { v -> update { it.copy(latencyFirst = v) } }
+    SwitchRow(stringResource(R.string.flag_smoltcp), config.useSmoltcp ?: false) { v -> update { it.copy(useSmoltcp = v) } }
+    SwitchRow(stringResource(R.string.flag_disable_ipv6), config.disableIpv6 ?: false) { v -> update { it.copy(disableIpv6 = v) } }
+    SwitchRow(stringResource(R.string.flag_kcp_proxy), config.enableKcpProxy ?: false) { v -> update { it.copy(enableKcpProxy = v) } }
+    SwitchRow(stringResource(R.string.flag_disable_p2p), config.disableP2p ?: false) { v -> update { it.copy(disableP2p = v) } }
+    SwitchRow(stringResource(R.string.flag_no_tun), config.noTun ?: false) { v -> update { it.copy(noTun = v) } }
+    SwitchRow(stringResource(R.string.flag_magic_dns), config.enableMagicDns, subtitle = stringResource(R.string.flag_magic_dns_subtitle)) { v -> update { it.copy(enableMagicDns = v) } }
     if (config.enableMagicDns) {
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = config.tldDnsZone ?: "",
             onValueChange = { v -> update { it.copy(tldDnsZone = v.trim().ifBlank { null }) } },
-            label = { Text("域名后缀") },
+            label = { Text(stringResource(R.string.editor_dns_zone)) },
             placeholder = { Text(config.networkName) },
             supportingText = {
-                Text(
-                    "设备可通过 主机名.${TomlGenerator.effectiveDnsZone(config)} 访问，" +
-                        "留空使用网络名",
-                )
+                Text(stringResource(R.string.editor_dns_zone_support, TomlGenerator.effectiveDnsZone(config)))
             },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
         )
     }
-    SwitchRow("私有模式", config.enablePrivateMode ?: false) { v -> update { it.copy(enablePrivateMode = v) } }
-    SwitchRow("多线程", config.multiThread ?: true) { v -> update { it.copy(multiThread = v) } }
+    SwitchRow(stringResource(R.string.flag_private_mode), config.enablePrivateMode ?: false) { v -> update { it.copy(enablePrivateMode = v) } }
+    SwitchRow(stringResource(R.string.flag_multi_thread), config.multiThread ?: true) { v -> update { it.copy(multiThread = v) } }
 
     // 可见 9 项 + 隐藏 16 项（出口节点在「基本」页，避免重复字段）
     TextButton(onClick = { showAllFlags = !showAllFlags }, modifier = FormHorizontalPadding) {
-        Text(if (showAllFlags) "收起" else "显示全部 25 项")
+        Text(if (showAllFlags) collapseLabel else stringResource(R.string.editor_show_all_flags))
     }
     if (showAllFlags) {
-        SwitchRow("绑定设备", config.bindDevice ?: true) { v -> update { it.copy(bindDevice = v) } }
-        SwitchRow("转发所有 Peer RPC", config.relayAllPeerRpc ?: false) { v -> update { it.copy(relayAllPeerRpc = v) } }
-        SwitchRow("系统代理转发", config.proxyForwardBySystem ?: false) { v -> update { it.copy(proxyForwardBySystem = v) } }
-        SwitchRow("禁用加密", config.disableEncryption ?: false) { v -> update { it.copy(disableEncryption = v) } }
-        SwitchRow("禁用 UDP 打洞", config.disableUdpHolePunching ?: false) { v -> update { it.copy(disableUdpHolePunching = v) } }
-        SwitchRow("禁用 TCP 打洞", config.disableTcpHolePunching ?: false) { v -> update { it.copy(disableTcpHolePunching = v) } }
-        SwitchRow("禁用对称 NAT 打洞", config.disableSymHolePunching ?: false) { v -> update { it.copy(disableSymHolePunching = v) } }
-        SwitchRow("禁用 UPnP", config.disableUpnp ?: false) { v -> update { it.copy(disableUpnp = v) } }
-        SwitchRow("禁用数据中继", config.disableRelayData ?: false) { v -> update { it.copy(disableRelayData = v) } }
-        SwitchRow("启用 UDP 广播中继", config.enableUdpBroadcastRelay ?: false) { v -> update { it.copy(enableUdpBroadcastRelay = v) } }
-        SwitchRow("仅 P2P", config.p2pOnly ?: false) { v -> update { it.copy(p2pOnly = v) } }
-        SwitchRow("惰性 P2P", config.lazyP2p ?: false) { v -> update { it.copy(lazyP2p = v) } }
-        SwitchRow("要求 P2P", config.needP2p ?: false) { v -> update { it.copy(needP2p = v) } }
-        SwitchRow("QUIC 代理", config.enableQuicProxy ?: false) { v -> update { it.copy(enableQuicProxy = v) } }
-        SwitchRow("禁用 QUIC 监听", config.disableQuicInput ?: false) { v -> update { it.copy(disableQuicInput = v) } }
-        SwitchRow("禁用 KCP 监听", config.disableKcpInput ?: false) { v -> update { it.copy(disableKcpInput = v) } }
+        SwitchRow(stringResource(R.string.flag_bind_device), config.bindDevice ?: true) { v -> update { it.copy(bindDevice = v) } }
+        SwitchRow(stringResource(R.string.flag_relay_all_peer_rpc), config.relayAllPeerRpc ?: false) { v -> update { it.copy(relayAllPeerRpc = v) } }
+        SwitchRow(stringResource(R.string.flag_proxy_forward_by_system), config.proxyForwardBySystem ?: false) { v -> update { it.copy(proxyForwardBySystem = v) } }
+        SwitchRow(stringResource(R.string.flag_disable_encryption), config.disableEncryption ?: false) { v -> update { it.copy(disableEncryption = v) } }
+        SwitchRow(stringResource(R.string.flag_disable_udp_hole_punching), config.disableUdpHolePunching ?: false) { v -> update { it.copy(disableUdpHolePunching = v) } }
+        SwitchRow(stringResource(R.string.flag_disable_tcp_hole_punching), config.disableTcpHolePunching ?: false) { v -> update { it.copy(disableTcpHolePunching = v) } }
+        SwitchRow(stringResource(R.string.flag_disable_sym_hole_punching), config.disableSymHolePunching ?: false) { v -> update { it.copy(disableSymHolePunching = v) } }
+        SwitchRow(stringResource(R.string.flag_disable_upnp), config.disableUpnp ?: false) { v -> update { it.copy(disableUpnp = v) } }
+        SwitchRow(stringResource(R.string.flag_disable_relay_data), config.disableRelayData ?: false) { v -> update { it.copy(disableRelayData = v) } }
+        SwitchRow(stringResource(R.string.flag_udp_broadcast_relay), config.enableUdpBroadcastRelay ?: false) { v -> update { it.copy(enableUdpBroadcastRelay = v) } }
+        SwitchRow(stringResource(R.string.flag_p2p_only), config.p2pOnly ?: false) { v -> update { it.copy(p2pOnly = v) } }
+        SwitchRow(stringResource(R.string.flag_lazy_p2p), config.lazyP2p ?: false) { v -> update { it.copy(lazyP2p = v) } }
+        SwitchRow(stringResource(R.string.flag_need_p2p), config.needP2p ?: false) { v -> update { it.copy(needP2p = v) } }
+        SwitchRow(stringResource(R.string.flag_quic_proxy), config.enableQuicProxy ?: false) { v -> update { it.copy(enableQuicProxy = v) } }
+        SwitchRow(stringResource(R.string.flag_disable_quic_input), config.disableQuicInput ?: false) { v -> update { it.copy(disableQuicInput = v) } }
+        SwitchRow(stringResource(R.string.flag_disable_kcp_input), config.disableKcpInput ?: false) { v -> update { it.copy(disableKcpInput = v) } }
     }
 
-    SectionHeader("网络详情", modifier = FormHorizontalPadding)
+    SectionHeader(stringResource(R.string.editor_section_details), modifier = FormHorizontalPadding)
     OutlinedTextField(
         value = config.hostname ?: "",
         onValueChange = { v -> update { it.copy(hostname = v.ifBlank { null }) } },
-        label = { Text("主机名") },
+        label = { Text(hostnameLabel) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
     )
     Spacer(Modifier.height(12.dp))
     StringListEditor(
-        label = "代理网段（CIDR）",
+        label = proxyCidrsLabel,
         items = config.proxyCidrs,
         onChange = { list -> update { it.copy(proxyCidrs = list) } },
         placeholder = "10.0.0.0/24",
@@ -591,7 +621,7 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
     IntField(
         value = config.mtu,
         onValueChange = { v -> update { it.copy(mtu = v) } },
-        label = "MTU",
+        label = mtuLabel,
         range = 400..1380,
         supporting = "400 - 1380",
         allowEmpty = true,
@@ -601,38 +631,38 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
     OutlinedTextField(
         value = config.devName ?: "",
         onValueChange = { v -> update { it.copy(devName = v.ifBlank { null }) } },
-        label = { Text("设备名称") },
+        label = { Text(stringResource(R.string.editor_dev_name)) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
     )
     Spacer(Modifier.height(12.dp))
     StringListEditor(
-        label = "监听地址",
+        label = listenersLabel,
         items = config.listenerUrls,
         onChange = { list -> update { it.copy(listenerUrls = list) } },
         placeholder = "tcp://0.0.0.0:11010",
         modifier = FormHorizontalPadding,
     )
 
-    SectionHeader("路由与限速", modifier = FormHorizontalPadding)
-    SwitchRow("手动路由", config.enableManualRoutes ?: false) { v ->
+    SectionHeader(stringResource(R.string.editor_section_routes), modifier = FormHorizontalPadding)
+    SwitchRow(stringResource(R.string.flag_manual_routes), config.enableManualRoutes ?: false) { v ->
         update { it.copy(enableManualRoutes = v) }
     }
     if (config.enableManualRoutes == true) {
         StringListEditor(
-            label = "路由表",
+            label = routeTableLabel,
             items = config.routes ?: emptyList(),
             onChange = { list -> update { it.copy(routes = list) } },
             placeholder = "10.147.0.0/16",
             modifier = FormHorizontalPadding,
         )
     }
-    SwitchRow("中继网络白名单", config.enableRelayNetworkWhitelist ?: false) { v ->
+    SwitchRow(stringResource(R.string.flag_relay_whitelist), config.enableRelayNetworkWhitelist ?: false) { v ->
         update { it.copy(enableRelayNetworkWhitelist = v) }
     }
     if (config.enableRelayNetworkWhitelist == true) {
         StringListEditor(
-            label = "白名单网段",
+            label = whitelistCidrsLabel,
             items = config.relayNetworkWhitelist ?: emptyList(),
             onChange = { list -> update { it.copy(relayNetworkWhitelist = list) } },
             placeholder = "172.16.0.0/12",
@@ -642,13 +672,13 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
     LongField(
         value = config.instanceRecvBpsLimit,
         onValueChange = { v -> update { it.copy(instanceRecvBpsLimit = v) } },
-        label = "接收带宽限制（bit/s）",
+        label = recvBpsLimitLabel,
         allowEmpty = true,
         modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
     )
     Spacer(Modifier.height(12.dp))
     StringListEditor(
-        label = "出口节点列表",
+        label = exitNodesLabel,
         items = config.exitNodes ?: emptyList(),
         onChange = { list -> update { it.copy(exitNodes = list) } },
         placeholder = "10.126.126.1",
@@ -660,9 +690,9 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
 
 @Composable
 private fun PortForwardTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkConfig) -> Unit) {
-    SectionHeader("端口转发", modifier = FormHorizontalPadding)
+    SectionHeader(stringResource(R.string.editor_section_pf), modifier = FormHorizontalPadding)
     Text(
-        "将本机端口的流量转发到虚拟网络中的其他节点。",
+        stringResource(R.string.editor_pf_desc),
         modifier = FormHorizontalPadding,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -694,7 +724,7 @@ private fun PortForwardTab(config: NetworkConfig, update: ((NetworkConfig) -> Ne
         modifier = FormHorizontalPadding,
     ) {
         Icon(Icons.Filled.Add, null, Modifier.size(18.dp))
-        Text("添加规则", Modifier.padding(start = 6.dp))
+        Text(stringResource(R.string.editor_pf_add), Modifier.padding(start = 6.dp))
     }
 }
 
@@ -706,6 +736,9 @@ private fun PortForwardEditor(
     onDelete: () -> Unit,
 ) {
     // 统一卡片语言：扁平 AppCard（细描边 + surfaceContainerLowest），内边距 16dp
+    val deleteLabel = stringResource(R.string.common_delete)
+    val bindPortLabel = stringResource(R.string.editor_pf_bind_port)
+    val dstPortLabel = stringResource(R.string.editor_pf_dst_port)
     AppCard(modifier = modifier) {
         Column(Modifier.padding(16.dp)) {
             Row(
@@ -721,7 +754,7 @@ private fun PortForwardEditor(
                     fontFamily = FontFamily.Monospace,
                 )
                 IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Filled.Delete, "删除", tint = MaterialTheme.colorScheme.error)
+                    Icon(Icons.Filled.Delete, deleteLabel, tint = MaterialTheme.colorScheme.error)
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -729,14 +762,14 @@ private fun PortForwardEditor(
                 OutlinedTextField(
                     value = pf.bindIp,
                     onValueChange = { v -> onChange(pf.copy(bindIp = v)) },
-                    label = { Text("绑定 IP") },
+                    label = { Text(stringResource(R.string.editor_pf_bind_ip)) },
                     singleLine = true,
                     modifier = Modifier.weight(2f),
                 )
                 IntField(
                     value = pf.bindPort,
                     onValueChange = { v -> onChange(pf.copy(bindPort = v ?: 0)) },
-                    label = "绑定端口",
+                    label = bindPortLabel,
                     range = 1..65535,
                     allowEmpty = false,
                     modifier = Modifier.weight(1f),
@@ -747,14 +780,14 @@ private fun PortForwardEditor(
                 OutlinedTextField(
                     value = pf.dstIp,
                     onValueChange = { v -> onChange(pf.copy(dstIp = v)) },
-                    label = { Text("目标 IP") },
+                    label = { Text(stringResource(R.string.editor_pf_dst_ip)) },
                     singleLine = true,
                     modifier = Modifier.weight(2f),
                 )
                 IntField(
                     value = pf.dstPort,
                     onValueChange = { v -> onChange(pf.copy(dstPort = v ?: 0)) },
-                    label = "目标端口",
+                    label = dstPortLabel,
                     range = 1..65535,
                     allowEmpty = false,
                     modifier = Modifier.weight(1f),

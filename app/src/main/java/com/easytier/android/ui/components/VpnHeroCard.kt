@@ -31,10 +31,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.easytier.android.R
 import com.easytier.android.ui.icons.AppIcons
 
 /**
@@ -58,6 +60,7 @@ fun ServiceHeroCard(
 ) {
     val start = if (running) HeroStart else HeroIdleStart
     val end = if (running) HeroEnd else HeroIdleEnd
+    val serviceLabel = stringResource(R.string.hero_service_cd)
     Column(
         modifier
             .fillMaxWidth()
@@ -111,7 +114,7 @@ fun ServiceHeroCard(
                 checked = running,
                 onCheckedChange = onToggle,
                 // TalkBack 默认只读「开/关」，补上服务名语义
-                modifier = Modifier.semantics { contentDescription = "EasyTier 服务" },
+                modifier = Modifier.semantics { contentDescription = serviceLabel },
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = start,
                     checkedTrackColor = Color.White,

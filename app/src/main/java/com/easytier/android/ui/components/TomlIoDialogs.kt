@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -56,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.easytier.android.R
 import com.easytier.android.core.toml.TomlImporter
 import com.easytier.android.data.model.NetworkConfig
 import com.easytier.android.ui.icons.AppIcons
@@ -236,7 +238,7 @@ fun TomlImportDialog(
                 error = null
                 onImported(cfg)
             }
-            .onFailure { e -> error = e.message ?: "解析失败" }
+            .onFailure { e -> error = e.message ?: context.getString(R.string.toml_parse_failed) }
     }
 
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -246,13 +248,13 @@ fun TomlImportDialog(
         }.fold(
             onSuccess = { content ->
                 if (content.isNullOrBlank()) {
-                    error = "所选文件为空或无法读取"
+                    error = context.getString(R.string.toml_file_empty)
                 } else {
                     value = TextFieldValue(content)
                     error = null
                 }
             },
-            onFailure = { e -> error = "读取文件失败：${e.message}" },
+            onFailure = { e -> error = context.getString(R.string.toml_file_read_failed, e.message ?: "") },
         )
     }
 
@@ -266,12 +268,12 @@ fun TomlImportDialog(
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                         modifier = Modifier.height(30.dp).padding(start = 4.dp),
                     ) {
-                        Text("导入", style = MaterialTheme.typography.labelLarge)
+                        Text(stringResource(R.string.common_import), style = MaterialTheme.typography.labelLarge)
                     }
                 },
                 actions = {
-                    CodeAction(AppIcons.FolderOpen, "从文件选择") { pickFile.launch("*/*") }
-                    CodeAction(AppIcons.Close, "关闭") { onDismiss() }
+                    CodeAction(AppIcons.FolderOpen, stringResource(R.string.toml_pick_file)) { pickFile.launch("*/*") }
+                    CodeAction(AppIcons.Close, stringResource(R.string.common_close)) { onDismiss() }
                 },
             )
             HorizontalDivider(thickness = 0.5.dp, color = CodeLine)
@@ -351,10 +353,10 @@ fun TomlExportDialog(
         runCatching {
             context.contentResolver.openOutputStream(uri)?.use {
                 it.write(toml.toByteArray())
-            } ?: throw IllegalStateException("无法写入所选位置")
+            } ?: throw IllegalStateException(context.getString(R.string.toml_write_failed))
         }.fold(
-            onSuccess = { toast("已保存 $fileName") },
-            onFailure = { e -> toast("保存失败：${e.message}") },
+            onSuccess = { toast(context.getString(R.string.toml_saved, fileName)) },
+            onFailure = { e -> toast(context.getString(R.string.toml_save_failed, e.message ?: "")) },
         )
     }
 
@@ -364,24 +366,26 @@ fun TomlExportDialog(
                 actions = {
                     CodeAction(
                         icon = if (copied) AppIcons.Check else AppIcons.ContentCopy,
-                        label = if (copied) "已复制" else "复制",
+                        label = if (copied) stringResource(R.string.common_copied) else stringResource(R.string.common_copy),
                         tint = if (copied) CodeEmerald else CodeFg,
                         onClick = {
                             clipboard.setText(AnnotatedString(toml))
                             copied = true
-                            toast("已复制到剪贴板")
+                            toast(context.getString(R.string.toml_copied_clipboard))
                         },
                     )
-                    CodeAction(AppIcons.Share, "分享") {
+                    CodeAction(AppIcons.Share, stringResource(R.string.toml_share)) {
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_SUBJECT, fileName)
                             putExtra(Intent.EXTRA_TEXT, toml)
                         }
-                        context.startActivity(Intent.createChooser(send, "分享 TOML 配置"))
+                        context.startActivity(
+                            Intent.createChooser(send, context.getString(R.string.toml_share_chooser)),
+                        )
                     }
-                    CodeAction(AppIcons.Download, "存为文件") { saveFile.launch(fileName) }
-                    CodeAction(AppIcons.Close, "关闭") { onDismiss() }
+                    CodeAction(AppIcons.Download, stringResource(R.string.toml_save_as)) { saveFile.launch(fileName) }
+                    CodeAction(AppIcons.Close, stringResource(R.string.common_close)) { onDismiss() }
                 },
             )
             HorizontalDivider(thickness = 0.5.dp, color = CodeLine)

@@ -3,6 +3,8 @@ package com.easytier.android.data.model
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import androidx.annotation.StringRes
+import com.easytier.android.R
 
 /**
  * 运行时网络信息模型，与 NetworkInstanceRunningInfoMap 的 pbjson 输出对齐。
@@ -99,18 +101,19 @@ enum class NatType {
     Unknown, OpenInternet, NoPAT, FullCone, Restricted, PortRestricted,
     Symmetric, SymUdpFirewall, SymmetricEasyInc, SymmetricEasyDec;
 
-    val label: String
-        get() = when (this) {
-            Unknown -> "未知"
-            OpenInternet -> "公网开放"
-            NoPAT -> "NoPAT"
-            FullCone -> "FullCone"
-            Restricted -> "Restricted"
-            PortRestricted -> "PortRestricted"
-            Symmetric -> "对称型"
-            SymUdpFirewall -> "UDP防火墙"
-            SymmetricEasyInc -> "对称易入"
-            SymmetricEasyDec -> "对称易出"
+    /** 展示名资源，UI 侧用 stringResource 解析（i18n）。 */
+    val labelRes: Int
+        @StringRes get() = when (this) {
+            Unknown -> R.string.nat_unknown
+            OpenInternet -> R.string.nat_open_internet
+            NoPAT -> R.string.nat_nopat
+            FullCone -> R.string.nat_full_cone
+            Restricted -> R.string.nat_restricted
+            PortRestricted -> R.string.nat_port_restricted
+            Symmetric -> R.string.nat_symmetric
+            SymUdpFirewall -> R.string.nat_sym_udp_firewall
+            SymmetricEasyInc -> R.string.nat_easy_inc
+            SymmetricEasyDec -> R.string.nat_easy_dec
         }
 }
 
@@ -208,8 +211,8 @@ data class UrlValue(val url: String = "")
 /** 延迟徽标配色档位：NEUTRAL 用于「连接中」等未知状态。 */
 enum class LatencyTier { NEUTRAL, GOOD, FAIR, BAD }
 
-/** 对等节点延迟徽标内容。 */
-data class PeerLatencyBadge(val connecting: Boolean, val text: String, val tier: LatencyTier)
+/** 对等节点延迟徽标：connecting 时 latencyMs 为 null，文案由 UI 按语言组装。 */
+data class PeerLatencyBadge(val connecting: Boolean, val latencyMs: Long?, val tier: LatencyTier)
 
 /**
  * 对等节点延迟展示规则：
@@ -220,10 +223,10 @@ fun peerLatencyBadge(connLatencyMs: Long?, pathLatency: Long): PeerLatencyBadge 
     val measured = connLatencyMs?.takeIf { it in 1 until 1000 }
     val effective = measured ?: pathLatency.takeIf { it > 0 }
     return when {
-        effective == null -> PeerLatencyBadge(true, "连接中", LatencyTier.NEUTRAL)
-        effective < 80 -> PeerLatencyBadge(false, "$effective ms", LatencyTier.GOOD)
-        effective < 200 -> PeerLatencyBadge(false, "$effective ms", LatencyTier.FAIR)
-        else -> PeerLatencyBadge(false, "$effective ms", LatencyTier.BAD)
+        effective == null -> PeerLatencyBadge(true, null, LatencyTier.NEUTRAL)
+        effective < 80 -> PeerLatencyBadge(false, effective, LatencyTier.GOOD)
+        effective < 200 -> PeerLatencyBadge(false, effective, LatencyTier.FAIR)
+        else -> PeerLatencyBadge(false, effective, LatencyTier.BAD)
     }
 }
 

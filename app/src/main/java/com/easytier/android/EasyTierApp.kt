@@ -14,6 +14,8 @@ import kotlinx.coroutines.launch
 
 /** 应用级依赖容器。 */
 class AppContainer(app: Application) {
+    /** 非/UI 层（ViewModel 报错文案等）取本地化字符串用。 */
+    val appContext: android.content.Context = app.applicationContext
     val settingsRepository = SettingsRepository(app)
     val networksRepository = NetworksRepository(app)
     val engine = EasyTierEngine()
