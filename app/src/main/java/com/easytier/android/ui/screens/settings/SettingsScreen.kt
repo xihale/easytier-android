@@ -80,9 +80,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 class SettingsViewModel : ViewModel() {
 
     private val repo: SettingsRepository =
@@ -182,7 +179,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
     var showUpdateIntervalDialog by remember { mutableStateOf(false) }
     // 发现新版本弹窗的内容（一次性事件驱动，非页面间常驻状态）
     var updateDialogInfo by remember { mutableStateOf<ReleaseInfo?>(null) }
-    // 检查按钮的即时状态（用于显示检查中菊叶与副标题）
+    // 检查按钮的即时状态（用于显示检查中菊叶）
     val checkState by vm.updateCheckResult.collectAsState()
 
     val s = settings ?: run {
@@ -205,15 +202,13 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
             AppCard {
                 Column(Modifier.padding(vertical = 4.dp)) {
                     SwitchRow(
-                        title = "启动 VPN",
-                        subtitle = "关闭后仅运行引擎，可经 SOCKS5 访问虚拟网络",
+                        title = "VPN 模式",
                         icon = AppIcons.Shield,
                         checked = s.enableVpn,
                         onCheckedChange = { vm.setVpnEnabled(it) },
                     )
                     SwitchRow(
                         title = "SOCKS5 代理",
-                        subtitle = "在本机开启 SOCKS5 代理服务",
                         icon = AppIcons.Language,
                         checked = s.enableSocks5,
                         onCheckedChange = { vm.setSocks5(it, s.socks5Port) },
@@ -221,7 +216,6 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                     if (s.enableSocks5) {
                         SettingRow(
                             title = "SOCKS5 端口",
-                            subtitle = "重启网络后生效",
                             icon = AppIcons.Terminal,
                             onClick = { showSocks5Dialog = true },
                             trailing = {
@@ -234,7 +228,6 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                         )
                         SettingRow(
                             title = "复制 Clash 路由",
-                            subtitle = "虚拟网段导流到本机 SOCKS5",
                             icon = AppIcons.ContentCopy,
                             onClick = {
                                 scope.launch {
@@ -262,14 +255,12 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                     }
                     SwitchRow(
                         title = "开机自启",
-                        subtitle = "开机后自动拉起已勾选的网络",
                         icon = AppIcons.Terminal,
                         checked = s.autoStartOnBoot,
                         onCheckedChange = { vm.setAutoStart(context, it) },
                     )
                     SettingRow(
                         title = "DNS 上游",
-                        subtitle = "Magic DNS 上游，支持 DoT / DoH",
                         icon = AppIcons.Dns,
                         onClick = onOpenDns,
                         trailing = { Chevron() },
@@ -351,7 +342,6 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                         if (s.pendingUpdateVersion.isNotEmpty()) {
                             SettingRow(
                                 title = "发现新版本 v${s.pendingUpdateVersion}",
-                                subtitle = "点击前往下载",
                                 icon = AppIcons.Download,
                                 onClick = {
                                     context.startActivity(
@@ -373,7 +363,6 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
                         }
                         SettingRow(
                             title = "检查更新",
-                            subtitle = UpdateCheckSubtitle(checkState, s),
                             icon = AppIcons.Download,
                             onClick = { vm.checkUpdate() },
                             trailing = {
@@ -488,17 +477,6 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}) {
             },
         )
     }
-}
-
-@Composable
-private fun UpdateCheckSubtitle(state: UpdateCheckResult, s: AppSettings): String {
-    if (state is UpdateCheckResult.Checking) return "检查中…"
-    if (s.lastUpdateCheckAt == 0L) return "从未检查"
-    val whenStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-        .format(Date(s.lastUpdateCheckAt))
-    return if (s.pendingUpdateVersion.isNotEmpty())
-        "发现 v${s.pendingUpdateVersion} · 上次 ${whenStr}"
-    else "上次检查 ${whenStr}"
 }
 
 @Composable
