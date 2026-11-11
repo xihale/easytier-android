@@ -1,13 +1,18 @@
 package com.easytier.android.ui.components
 
-import androidx.compose.animation.core.LinearEasing
+import android.os.Build
+import android.provider.Settings
+import android.view.HapticFeedbackConstants
+import android.view.View
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,10 +37,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -44,6 +51,76 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.easytier.android.core.engine.InstanceState
 import com.easytier.android.ui.theme.LocalStatusColors
+
+/** 系统触感强度键（Settings.System.HAPTIC_FEEDBACK_INTENSITY，公开 SDK 未暴露该常量）。 */
+private const val HAPTIC_FEEDBACK_INTENSITY_KEY = "haptic_feedback_intensity"
+
+/**
+ * 触感反馈封装：只保留有信息量的三类（开关拨动、拒绝告警、阈值越过），兼容 API 24+。
+ *
+ * 工具类应用不发明触感：普通点击/成功操作均不震动（系统 UI 与 Material 组件在
+ * 这些场景也不震动，且成功操作已有可见反馈），避免「比系统更吵」。
+ * 全部先过系统「触摸反馈」门闸：设置里关闭触摸反馈或把触感强度调到「关闭」时
+ * 全程静默，开启时强度也随系统触感强度缩放（performHapticFeedback 走
+ * USAGE_TOUCH 通道），保证与应用外的系统 UI 手感一致。
+ */
+class AppHaptics(private val view: View) {
+
+    /**
+     * 系统门闸：读系统「触摸反馈」开关与触感强度（与平台 VibratorManagerService 对
+     * USAGE_TOUCH 的门控同源）。Settings 内部有按代数失效的进程内缓存，逐次读取开销可忽略。
+     * 强度键 haptic_feedback_intensity 自 API 30 起存在但常量不在公开 SDK，用字面量读；
+     * 低版本读不到时按默认值放行。
+     */
+    private fun allowed(): Boolean {
+        val resolver = view.context.contentResolver
+        if (Settings.System.getInt(resolver, Settings.System.HAPTIC_FEEDBACK_ENABLED, 1) == 0) {
+            return false
+        }
+        return Settings.System.getInt(resolver, HAPTIC_FEEDBACK_INTENSITY_KEY, -1) != 0
+    }
+
+    private fun perform(constant: Int) {
+        if (!allowed()) return
+        view.performHapticFeedback(constant)
+    }
+
+    /** 开关切换：SwitchRow、圆形勾选框、主服务总开关。 */
+    fun toggle(checked: Boolean) {
+        val constant = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (checked) HapticFeedbackConstants.TOGGLE_ON else HapticFeedbackConstants.TOGGLE_OFF
+        } else {
+            HapticFeedbackConstants.CLOCK_TICK
+        }
+        perform(constant)
+    }
+
+    /** 拒绝/告警：输入校验失败、破坏性操作提醒。 */
+    fun reject() {
+        val constant = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            HapticFeedbackConstants.REJECT
+        } else {
+            HapticFeedbackConstants.LONG_PRESS
+        }
+        perform(constant)
+    }
+
+    /** 重触/越过手势阈值：左滑删除越过阈值、长按复制。 */
+    fun heavy() {
+        val constant = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE
+        } else {
+            HapticFeedbackConstants.LONG_PRESS
+        }
+        perform(constant)
+    }
+}
+
+@Composable
+fun rememberHaptics(): AppHaptics {
+    val view = LocalView.current
+    return remember(view) { AppHaptics(view) }
+}
 
 /** 统一卡片外观：扁平（无阴影）+ 极细描边 + surfaceContainerLowest 默认底色。 */
 @Composable
@@ -96,18 +173,23 @@ fun StatusDot(
     size: Dp = 10.dp,
     pulse: Boolean = false,
 ) {
+    val animatedColor by animateColorAsState(
+        targetValue = color,
+        animationSpec = tween(durationMillis = 250),
+        label = "statusDotColor",
+    )
     if (!pulse) {
         Box(
             modifier
                 .size(size)
-                .background(color, CircleShape),
+                .background(animatedColor, CircleShape),
         )
     } else {
-        PulsingStatusDot(color, modifier, size)
+        PulsingStatusDot(animatedColor, modifier, size)
     }
 }
 
-/** 呼吸光晕：2000ms 循环，外圈半径缓动扩张、alpha 在 0.18～0.32 间往复。 */
+/** 呼吸光晕：2200ms 缓动循环，外圈半径扩张并自然消散至透明，消除周期重置时的闪烁跳变。 */
 @Composable
 private fun PulsingStatusDot(
     color: Color,
@@ -119,7 +201,7 @@ private fun PulsingStatusDot(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = LinearEasing),
+            animation = tween(durationMillis = 2200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart,
         ),
         label = "statusDotPulseProgress",
@@ -131,8 +213,8 @@ private fun PulsingStatusDot(
     ) {
         Box(
             Modifier
-                .size(size * (1f + 1.6f * progress))
-                .background(color.copy(alpha = 0.32f - 0.14f * progress), CircleShape),
+                .size(size * (1f + 1.5f * progress))
+                .background(color.copy(alpha = 0.36f * (1f - progress)), CircleShape),
         )
         Box(Modifier.fillMaxSize().background(color, CircleShape))
     }

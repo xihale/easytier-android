@@ -1,6 +1,19 @@
 package com.easytier.android.ui.screens.editor
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +36,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +63,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -77,6 +92,7 @@ import com.easytier.android.ui.components.StringListEditor
 import com.easytier.android.ui.components.SwitchRow
 import com.easytier.android.ui.components.TomlExportDialog
 import com.easytier.android.ui.components.TomlImportDialog
+import com.easytier.android.ui.components.rememberHaptics
 import com.easytier.android.ui.components.rememberWithVpnPermission
 import com.easytier.android.ui.icons.AppIcons
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -204,10 +220,12 @@ fun NetworkEditorScreen(
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val haptics = rememberHaptics()
 
     // 保存被拦截（空名/重名/启动失败）时提示；空名/重名不离开编辑页
     LaunchedEffect(saveError) {
         saveError?.let {
+            haptics.reject()
             snackbar.showSnackbar(it)
             vm.consumeSaveError()
         }
@@ -217,6 +235,9 @@ fun NetworkEditorScreen(
 
     // rememberSaveable：切后台/进程重建后停留在原 tab
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    val basicScroll = rememberScrollState()
+    val advancedScroll = rememberScrollState()
+    val pfScroll = rememberScrollState()
     var showImportDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }
@@ -224,9 +245,17 @@ fun NetworkEditorScreen(
     // 脏检查：与落库快照不一致时拦截返回，防误触丢改动
     val dirty = network != null && network != original
     fun attemptBack() {
-        if (dirty) showDiscardDialog = true else onBack()
+        if (dirty) {
+            haptics.reject()
+            showDiscardDialog = true
+        } else {
+            onBack()
+        }
     }
-    BackHandler(enabled = dirty) { showDiscardDialog = true }
+    BackHandler(enabled = dirty) {
+        haptics.reject()
+        showDiscardDialog = true
+    }
 
     // VPN 关闭（仅引擎模式）时无需系统 VPN 权限
     val enableVpn by remember(container) {
@@ -235,11 +264,15 @@ fun NetworkEditorScreen(
 
     // 保存并启用：启用即可能建 TUN，先确保 VPN 已授权
     val saveAndEnableWithPermission = rememberWithVpnPermission(enabled = enableVpn) {
-        vm.save(true, onSaved)
+        vm.save(true) { id ->
+            onSaved(id)
+        }
     }
 
     fun saveOnly() {
-        vm.save(false, onSaved)
+        vm.save(false) { id ->
+            onSaved(id)
+        }
     }
 
     Scaffold(
@@ -263,10 +296,14 @@ fun NetworkEditorScreen(
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = { showImportDialog = true }) {
+                IconButton(onClick = {
+                    showImportDialog = true
+                }) {
                     Icon(AppIcons.Upload, stringResource(R.string.editor_import_toml))
                 }
-                IconButton(onClick = { showExportDialog = true }) {
+                IconButton(onClick = {
+                    showExportDialog = true
+                }) {
                     Icon(AppIcons.Download, stringResource(R.string.editor_export_toml))
                 }
             }
@@ -313,37 +350,55 @@ fun NetworkEditorScreen(
                     CircularProgressIndicator()
                 }
                 else -> {
-                    // 各 tab 独立滚动：切换 tab 不停留在上个 tab 的滚动位置
-                    when (tab) {
-                        0 -> Column(
-                            Modifier
-                                .weight(1f)
-                                .verticalScroll(rememberScrollState())
-                                .padding(vertical = 8.dp),
-                        ) {
-                            BasicTab(saved.config, vm::update)
-                            Spacer(Modifier.height(16.dp))
-                        }
-                        1 -> Column(
-                            Modifier
-                                .weight(1f)
-                                .verticalScroll(rememberScrollState())
-                                .padding(vertical = 8.dp),
-                        ) {
-                            AdvancedTab(saved.config, vm::update)
-                            Spacer(Modifier.height(16.dp))
-                        }
-                        2 -> Column(
-                            Modifier
-                                .weight(1f)
-                                .verticalScroll(rememberScrollState())
-                                .padding(vertical = 8.dp),
-                        ) {
-                            PortForwardTab(saved.config, vm::update)
-                            Spacer(Modifier.height(16.dp))
+                    // 各 tab 独立滚动状态 + 方向性横向过渡
+                    AnimatedContent(
+                        targetState = tab,
+                        modifier = Modifier.weight(1f),
+                        transitionSpec = {
+                            val dir = if (targetState > initialState) 1 else -1
+                            (fadeIn(tween(180, easing = FastOutSlowInEasing)) +
+                                slideInHorizontally(tween(200, easing = FastOutSlowInEasing)) { dir * (it / 10) })
+                                .togetherWith(
+                                    fadeOut(tween(120)) +
+                                        slideOutHorizontally(tween(180, easing = FastOutSlowInEasing)) { -dir * (it / 14) },
+                                )
+                        },
+                        label = "editorTabContent",
+                    ) { currentTab ->
+                        when (currentTab) {
+                            0 -> Column(
+                                Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(basicScroll)
+                                    .padding(vertical = 8.dp),
+                            ) {
+                                BasicTab(saved.config, vm::update)
+                                Spacer(Modifier.height(16.dp))
+                            }
+                            1 -> Column(
+                                Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(advancedScroll)
+                                    .padding(vertical = 8.dp),
+                            ) {
+                                AdvancedTab(saved.config, vm::update)
+                                Spacer(Modifier.height(16.dp))
+                            }
+                            2 -> Column(
+                                Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(pfScroll)
+                                    .padding(vertical = 8.dp),
+                            ) {
+                                PortForwardTab(saved.config, vm::update)
+                                Spacer(Modifier.height(16.dp))
+                            }
                         }
                     }
 
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    )
                     // 底部保存条（weight 布局保证不被滚动区挤掉）
                     Row(
                         Modifier.fillMaxWidth().padding(16.dp),
@@ -439,7 +494,9 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
         visualTransformation = if (showSecret) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
             // 更轻的显隐切换：IconButton 承载小号中性色文字，作为输入框附属操作而非独立按钮
-            IconButton(onClick = { showSecret = !showSecret }) {
+            IconButton(onClick = {
+                showSecret = !showSecret
+            }) {
                 Text(
                     if (showSecret) showLabel else hideLabel,
                     style = MaterialTheme.typography.labelLarge,
@@ -458,7 +515,11 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
         checked = config.dhcp,
         onCheckedChange = { v -> update { it.copy(dhcp = v) } },
     )
-    if (config.dhcp && config.networkingMethod == NetworkingMethod.Standalone) {
+    AnimatedVisibility(
+        visible = config.dhcp && config.networkingMethod == NetworkingMethod.Standalone,
+        enter = expandVertically(tween(200, easing = FastOutSlowInEasing)) + fadeIn(tween(160)),
+        exit = shrinkVertically(tween(160, easing = FastOutSlowInEasing)) + fadeOut(tween(120)),
+    ) {
         Text(
             stringResource(R.string.editor_standalone_dhcp_warn),
             modifier = FormHorizontalPadding,
@@ -466,28 +527,34 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
             color = MaterialTheme.colorScheme.error,
         )
     }
-    if (!config.dhcp) {
-        Row(
-            Modifier.fillMaxWidth().then(FormHorizontalPadding),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            OutlinedTextField(
-                value = config.virtualIpv4 ?: "",
-                onValueChange = { v -> update { it.copy(virtualIpv4 = v) } },
-                label = { Text(stringResource(R.string.editor_virtual_ipv4)) },
-                singleLine = true,
-                modifier = Modifier.weight(2f),
-            )
-            IntField(
-                value = config.networkLength,
-                onValueChange = { v -> update { it.copy(networkLength = v ?: 24) } },
-                label = prefixLenLabel,
-                range = 0..32,
-                allowEmpty = false,
-                modifier = Modifier.weight(1f),
-            )
+    AnimatedVisibility(
+        visible = !config.dhcp,
+        enter = expandVertically(tween(220, easing = FastOutSlowInEasing)) + fadeIn(tween(180)),
+        exit = shrinkVertically(tween(180, easing = FastOutSlowInEasing)) + fadeOut(tween(120)),
+    ) {
+        Column {
+            Row(
+                Modifier.fillMaxWidth().then(FormHorizontalPadding),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = config.virtualIpv4 ?: "",
+                    onValueChange = { v -> update { it.copy(virtualIpv4 = v) } },
+                    label = { Text(stringResource(R.string.editor_virtual_ipv4)) },
+                    singleLine = true,
+                    modifier = Modifier.weight(2f),
+                )
+                IntField(
+                    value = config.networkLength,
+                    onValueChange = { v -> update { it.copy(networkLength = v ?: 24) } },
+                    label = prefixLenLabel,
+                    range = 0..32,
+                    allowEmpty = false,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.height(12.dp))
         }
-        Spacer(Modifier.height(12.dp))
     }
 
     // 连接方式
@@ -496,7 +563,9 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
         NetworkingMethod.entries.forEachIndexed { i, method ->
             SegmentedButton(
                 selected = config.networkingMethod == method,
-                onClick = { update { it.copy(networkingMethod = method) } },
+                onClick = {
+                    update { it.copy(networkingMethod = method) }
+                },
                 shape = SegmentedButtonDefaults.itemShape(i, NetworkingMethod.entries.size),
             ) {
                 Text(stringResource(method.labelRes))
@@ -504,28 +573,37 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
         }
     }
     Spacer(Modifier.height(12.dp))
-    when (config.networkingMethod) {
-        NetworkingMethod.PublicServer -> OutlinedTextField(
-            value = config.publicServerUrl ?: "",
-            onValueChange = { v -> update { it.copy(publicServerUrl = v) } },
-            label = { Text(stringResource(R.string.editor_public_server_url)) },
-            placeholder = { Text("tcp://public.easytier.cn:11010") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
-        )
-        NetworkingMethod.Manual -> StringListEditor(
-            label = initialPeersLabel,
-            items = config.peerUrls,
-            onChange = { list -> update { it.copy(peerUrls = list) } },
-            placeholder = "tcp://203.0.113.10:11010",
-            modifier = FormHorizontalPadding,
-        )
-        NetworkingMethod.Standalone -> Text(
-            stringResource(R.string.editor_standalone_desc),
-            modifier = FormHorizontalPadding,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    AnimatedContent(
+        targetState = config.networkingMethod,
+        transitionSpec = {
+            fadeIn(tween(180, easing = FastOutSlowInEasing)) togetherWith
+                fadeOut(tween(120))
+        },
+        label = "networkingMethodInput",
+    ) { method ->
+        when (method) {
+            NetworkingMethod.PublicServer -> OutlinedTextField(
+                value = config.publicServerUrl ?: "",
+                onValueChange = { v -> update { it.copy(publicServerUrl = v) } },
+                label = { Text(stringResource(R.string.editor_public_server_url)) },
+                placeholder = { Text("tcp://public.easytier.cn:11010") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
+            )
+            NetworkingMethod.Manual -> StringListEditor(
+                label = initialPeersLabel,
+                items = config.peerUrls,
+                onChange = { list -> update { it.copy(peerUrls = list) } },
+                placeholder = "tcp://203.0.113.10:11010",
+                modifier = FormHorizontalPadding,
+            )
+            NetworkingMethod.Standalone -> Text(
+                stringResource(R.string.editor_standalone_desc),
+                modifier = FormHorizontalPadding,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 
     SectionHeader(stringResource(R.string.editor_section_runtime), modifier = FormHorizontalPadding)
@@ -543,6 +621,11 @@ private fun BasicTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkC
 @Composable
 private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> NetworkConfig) -> Unit) {
     var showAllFlags by remember { mutableStateOf(false) }
+    val flagsChevronRotation by animateFloatAsState(
+        targetValue = if (showAllFlags) 180f else 0f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "flagsChevron",
+    )
     val collapseLabel = stringResource(R.string.common_collapse)
     val hostnameLabel = stringResource(R.string.editor_hostname)
     val proxyCidrsLabel = stringResource(R.string.editor_proxy_cidrs)
@@ -561,44 +644,64 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
     SwitchRow(stringResource(R.string.flag_disable_p2p), config.disableP2p ?: false) { v -> update { it.copy(disableP2p = v) } }
     SwitchRow(stringResource(R.string.flag_no_tun), config.noTun ?: false) { v -> update { it.copy(noTun = v) } }
     SwitchRow(stringResource(R.string.flag_magic_dns), config.enableMagicDns, subtitle = stringResource(R.string.flag_magic_dns_subtitle)) { v -> update { it.copy(enableMagicDns = v) } }
-    if (config.enableMagicDns) {
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = config.tldDnsZone ?: "",
-            onValueChange = { v -> update { it.copy(tldDnsZone = v.trim().ifBlank { null }) } },
-            label = { Text(stringResource(R.string.editor_dns_zone)) },
-            placeholder = { Text(config.networkName) },
-            supportingText = {
-                Text(stringResource(R.string.editor_dns_zone_support, TomlGenerator.effectiveDnsZone(config)))
-            },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
-        )
+    AnimatedVisibility(
+        visible = config.enableMagicDns,
+        enter = expandVertically(tween(220, easing = FastOutSlowInEasing)) + fadeIn(tween(180)),
+        exit = shrinkVertically(tween(180, easing = FastOutSlowInEasing)) + fadeOut(tween(120)),
+    ) {
+        Column {
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = config.tldDnsZone ?: "",
+                onValueChange = { v -> update { it.copy(tldDnsZone = v.trim().ifBlank { null }) } },
+                label = { Text(stringResource(R.string.editor_dns_zone)) },
+                placeholder = { Text(config.networkName) },
+                supportingText = {
+                    Text(stringResource(R.string.editor_dns_zone_support, TomlGenerator.effectiveDnsZone(config)))
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().then(FormHorizontalPadding),
+            )
+        }
     }
     SwitchRow(stringResource(R.string.flag_private_mode), config.enablePrivateMode ?: false) { v -> update { it.copy(enablePrivateMode = v) } }
     SwitchRow(stringResource(R.string.flag_multi_thread), config.multiThread ?: true) { v -> update { it.copy(multiThread = v) } }
 
     // 可见 9 项 + 隐藏 16 项（出口节点在「基本」页，避免重复字段）
-    TextButton(onClick = { showAllFlags = !showAllFlags }, modifier = FormHorizontalPadding) {
+    TextButton(
+        onClick = { showAllFlags = !showAllFlags },
+        modifier = FormHorizontalPadding,
+    ) {
         Text(if (showAllFlags) collapseLabel else stringResource(R.string.editor_show_all_flags))
+        Icon(
+            AppIcons.ExpandMore,
+            null,
+            modifier = Modifier.padding(start = 4.dp).size(18.dp).rotate(flagsChevronRotation),
+        )
     }
-    if (showAllFlags) {
-        SwitchRow(stringResource(R.string.flag_bind_device), config.bindDevice ?: true) { v -> update { it.copy(bindDevice = v) } }
-        SwitchRow(stringResource(R.string.flag_relay_all_peer_rpc), config.relayAllPeerRpc ?: false) { v -> update { it.copy(relayAllPeerRpc = v) } }
-        SwitchRow(stringResource(R.string.flag_proxy_forward_by_system), config.proxyForwardBySystem ?: false) { v -> update { it.copy(proxyForwardBySystem = v) } }
-        SwitchRow(stringResource(R.string.flag_disable_encryption), config.disableEncryption ?: false) { v -> update { it.copy(disableEncryption = v) } }
-        SwitchRow(stringResource(R.string.flag_disable_udp_hole_punching), config.disableUdpHolePunching ?: false) { v -> update { it.copy(disableUdpHolePunching = v) } }
-        SwitchRow(stringResource(R.string.flag_disable_tcp_hole_punching), config.disableTcpHolePunching ?: false) { v -> update { it.copy(disableTcpHolePunching = v) } }
-        SwitchRow(stringResource(R.string.flag_disable_sym_hole_punching), config.disableSymHolePunching ?: false) { v -> update { it.copy(disableSymHolePunching = v) } }
-        SwitchRow(stringResource(R.string.flag_disable_upnp), config.disableUpnp ?: false) { v -> update { it.copy(disableUpnp = v) } }
-        SwitchRow(stringResource(R.string.flag_disable_relay_data), config.disableRelayData ?: false) { v -> update { it.copy(disableRelayData = v) } }
-        SwitchRow(stringResource(R.string.flag_udp_broadcast_relay), config.enableUdpBroadcastRelay ?: false) { v -> update { it.copy(enableUdpBroadcastRelay = v) } }
-        SwitchRow(stringResource(R.string.flag_p2p_only), config.p2pOnly ?: false) { v -> update { it.copy(p2pOnly = v) } }
-        SwitchRow(stringResource(R.string.flag_lazy_p2p), config.lazyP2p ?: false) { v -> update { it.copy(lazyP2p = v) } }
-        SwitchRow(stringResource(R.string.flag_need_p2p), config.needP2p ?: false) { v -> update { it.copy(needP2p = v) } }
-        SwitchRow(stringResource(R.string.flag_quic_proxy), config.enableQuicProxy ?: false) { v -> update { it.copy(enableQuicProxy = v) } }
-        SwitchRow(stringResource(R.string.flag_disable_quic_input), config.disableQuicInput ?: false) { v -> update { it.copy(disableQuicInput = v) } }
-        SwitchRow(stringResource(R.string.flag_disable_kcp_input), config.disableKcpInput ?: false) { v -> update { it.copy(disableKcpInput = v) } }
+    AnimatedVisibility(
+        visible = showAllFlags,
+        enter = expandVertically(tween(240, easing = FastOutSlowInEasing)) + fadeIn(tween(180)),
+        exit = shrinkVertically(tween(200, easing = FastOutSlowInEasing)) + fadeOut(tween(120)),
+    ) {
+        Column {
+            SwitchRow(stringResource(R.string.flag_bind_device), config.bindDevice ?: true) { v -> update { it.copy(bindDevice = v) } }
+            SwitchRow(stringResource(R.string.flag_relay_all_peer_rpc), config.relayAllPeerRpc ?: false) { v -> update { it.copy(relayAllPeerRpc = v) } }
+            SwitchRow(stringResource(R.string.flag_proxy_forward_by_system), config.proxyForwardBySystem ?: false) { v -> update { it.copy(proxyForwardBySystem = v) } }
+            SwitchRow(stringResource(R.string.flag_disable_encryption), config.disableEncryption ?: false) { v -> update { it.copy(disableEncryption = v) } }
+            SwitchRow(stringResource(R.string.flag_disable_udp_hole_punching), config.disableUdpHolePunching ?: false) { v -> update { it.copy(disableUdpHolePunching = v) } }
+            SwitchRow(stringResource(R.string.flag_disable_tcp_hole_punching), config.disableTcpHolePunching ?: false) { v -> update { it.copy(disableTcpHolePunching = v) } }
+            SwitchRow(stringResource(R.string.flag_disable_sym_hole_punching), config.disableSymHolePunching ?: false) { v -> update { it.copy(disableSymHolePunching = v) } }
+            SwitchRow(stringResource(R.string.flag_disable_upnp), config.disableUpnp ?: false) { v -> update { it.copy(disableUpnp = v) } }
+            SwitchRow(stringResource(R.string.flag_disable_relay_data), config.disableRelayData ?: false) { v -> update { it.copy(disableRelayData = v) } }
+            SwitchRow(stringResource(R.string.flag_udp_broadcast_relay), config.enableUdpBroadcastRelay ?: false) { v -> update { it.copy(enableUdpBroadcastRelay = v) } }
+            SwitchRow(stringResource(R.string.flag_p2p_only), config.p2pOnly ?: false) { v -> update { it.copy(p2pOnly = v) } }
+            SwitchRow(stringResource(R.string.flag_lazy_p2p), config.lazyP2p ?: false) { v -> update { it.copy(lazyP2p = v) } }
+            SwitchRow(stringResource(R.string.flag_need_p2p), config.needP2p ?: false) { v -> update { it.copy(needP2p = v) } }
+            SwitchRow(stringResource(R.string.flag_quic_proxy), config.enableQuicProxy ?: false) { v -> update { it.copy(enableQuicProxy = v) } }
+            SwitchRow(stringResource(R.string.flag_disable_quic_input), config.disableQuicInput ?: false) { v -> update { it.copy(disableQuicInput = v) } }
+            SwitchRow(stringResource(R.string.flag_disable_kcp_input), config.disableKcpInput ?: false) { v -> update { it.copy(disableKcpInput = v) } }
+        }
     }
 
     SectionHeader(stringResource(R.string.editor_section_details), modifier = FormHorizontalPadding)
@@ -648,7 +751,11 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
     SwitchRow(stringResource(R.string.flag_manual_routes), config.enableManualRoutes ?: false) { v ->
         update { it.copy(enableManualRoutes = v) }
     }
-    if (config.enableManualRoutes == true) {
+    AnimatedVisibility(
+        visible = config.enableManualRoutes == true,
+        enter = expandVertically(tween(220, easing = FastOutSlowInEasing)) + fadeIn(tween(180)),
+        exit = shrinkVertically(tween(180, easing = FastOutSlowInEasing)) + fadeOut(tween(120)),
+    ) {
         StringListEditor(
             label = routeTableLabel,
             items = config.routes ?: emptyList(),
@@ -660,7 +767,11 @@ private fun AdvancedTab(config: NetworkConfig, update: ((NetworkConfig) -> Netwo
     SwitchRow(stringResource(R.string.flag_relay_whitelist), config.enableRelayNetworkWhitelist ?: false) { v ->
         update { it.copy(enableRelayNetworkWhitelist = v) }
     }
-    if (config.enableRelayNetworkWhitelist == true) {
+    AnimatedVisibility(
+        visible = config.enableRelayNetworkWhitelist == true,
+        enter = expandVertically(tween(220, easing = FastOutSlowInEasing)) + fadeIn(tween(180)),
+        exit = shrinkVertically(tween(180, easing = FastOutSlowInEasing)) + fadeOut(tween(120)),
+    ) {
         StringListEditor(
             label = whitelistCidrsLabel,
             items = config.relayNetworkWhitelist ?: emptyList(),
@@ -699,22 +810,24 @@ private fun PortForwardTab(config: NetworkConfig, update: ((NetworkConfig) -> Ne
     )
     Spacer(Modifier.height(12.dp))
 
-    config.portForwards.forEachIndexed { index, pf ->
-        PortForwardEditor(
-            pf = pf,
-            modifier = FormHorizontalPadding,
-            onChange = { newPf ->
-                update { c ->
-                    c.copy(portForwards = c.portForwards.toMutableList().apply { set(index, newPf) })
-                }
-            },
-            onDelete = {
-                update { c ->
-                    c.copy(portForwards = c.portForwards.toMutableList().apply { removeAt(index) })
-                }
-            },
-        )
-        Spacer(Modifier.height(12.dp))
+    Column(Modifier.animateContentSize(animationSpec = tween(durationMillis = 200))) {
+        config.portForwards.forEachIndexed { index, pf ->
+            PortForwardEditor(
+                pf = pf,
+                modifier = FormHorizontalPadding,
+                onChange = { newPf ->
+                    update { c ->
+                        c.copy(portForwards = c.portForwards.toMutableList().apply { set(index, newPf) })
+                    }
+                },
+                onDelete = {
+                    update { c ->
+                        c.copy(portForwards = c.portForwards.toMutableList().apply { removeAt(index) })
+                    }
+                },
+            )
+            Spacer(Modifier.height(12.dp))
+        }
     }
 
     TextButton(
@@ -798,7 +911,9 @@ private fun PortForwardEditor(
                 listOf("tcp", "udp").forEachIndexed { i, proto ->
                     SegmentedButton(
                         selected = pf.proto == proto,
-                        onClick = { onChange(pf.copy(proto = proto)) },
+                        onClick = {
+                            onChange(pf.copy(proto = proto))
+                        },
                         shape = SegmentedButtonDefaults.itemShape(i, 2),
                     ) { Text(proto.uppercase()) }
                 }

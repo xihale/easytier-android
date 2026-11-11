@@ -14,10 +14,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
@@ -145,15 +148,19 @@ private fun EasyTierAppNavHost(container: AppContainer) {
             // 进出编辑页时底栏滑入/滑出而非瞬间消失，避免内容区跳变带来的顿挫感
             AnimatedVisibility(
                 visible = currentRoute in topLevelRoutes,
-                enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 2 },
-                exit = fadeOut(tween(160)) + slideOutVertically(tween(160)) { it / 2 },
+                enter = fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+                    slideInVertically(tween(220, easing = FastOutSlowInEasing)) { it / 2 },
+                exit = fadeOut(tween(160, easing = FastOutSlowInEasing)) +
+                    slideOutVertically(tween(160, easing = FastOutSlowInEasing)) { it / 2 },
             ) {
                 NavigationBar {
                     TopDestination.entries.forEach { dest ->
                         val route = dest.name.lowercase()
                         NavigationBarItem(
                             selected = currentRoute == route,
-                            onClick = { navController.navigateTopLevel(route) },
+                            onClick = {
+                                navController.navigateTopLevel(route)
+                            },
                             icon = {
                                 Icon(
                                     when (dest) {
@@ -177,11 +184,43 @@ private fun EasyTierAppNavHost(container: AppContainer) {
             startDestination = "networks",
             // consumeWindowInsets：消费掉已 pad 的 inset，编辑页内层 Scaffold 不会重复 pad navigationBars
             modifier = Modifier.padding(padding).consumeWindowInsets(padding),
-            // 纯短淡入淡出：slide 会带着重组中的重页面一起动画，是切页卡顿的主因
-            enterTransition = { fadeIn(tween(160)) },
-            exitTransition = { fadeOut(tween(90)) },
-            popEnterTransition = { fadeIn(tween(160)) },
-            popExitTransition = { fadeOut(tween(90)) },
+            // 顶层底栏切页保持轻量短淡入淡出；进出子页面（编辑页/DNS/Clash 帮助）采用轻微 Shared-Axis X 横向位移
+            enterTransition = {
+                val toSubPage = targetState.destination.route !in topLevelRoutes
+                if (toSubPage) {
+                    fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+                        slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) { it / 8 }
+                } else {
+                    fadeIn(tween(160))
+                }
+            },
+            exitTransition = {
+                val toSubPage = targetState.destination.route !in topLevelRoutes
+                if (toSubPage) {
+                    fadeOut(tween(140)) +
+                        slideOutHorizontally(tween(240, easing = FastOutSlowInEasing)) { -it / 16 }
+                } else {
+                    fadeOut(tween(90))
+                }
+            },
+            popEnterTransition = {
+                val fromSubPage = initialState.destination.route !in topLevelRoutes
+                if (fromSubPage) {
+                    fadeIn(tween(200, easing = FastOutSlowInEasing)) +
+                        slideInHorizontally(tween(220, easing = FastOutSlowInEasing)) { -it / 16 }
+                } else {
+                    fadeIn(tween(160))
+                }
+            },
+            popExitTransition = {
+                val fromSubPage = initialState.destination.route !in topLevelRoutes
+                if (fromSubPage) {
+                    fadeOut(tween(150)) +
+                        slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { it / 8 }
+                } else {
+                    fadeOut(tween(90))
+                }
+            },
         ) {
             composable("networks") {
                 NetworksScreen(

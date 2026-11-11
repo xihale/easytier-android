@@ -88,13 +88,17 @@ fun SwitchRow(
     icon: ImageVector? = null,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    val haptics = rememberHaptics()
     SettingRow(
         title = title,
         subtitle = subtitle,
         icon = icon,
         modifier = modifier,
         // 整行可点；Switch 只做展示（onCheckedChange = null），避免行点击 + 开关自身点击双触发
-        onClick = { onCheckedChange(!checked) },
+        onClick = {
+            haptics.toggle(!checked)
+            onCheckedChange(!checked)
+        },
         trailing = {
             Switch(checked = checked, onCheckedChange = null)
         },

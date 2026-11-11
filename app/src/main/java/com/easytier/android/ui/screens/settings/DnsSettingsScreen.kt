@@ -1,5 +1,7 @@
 package com.easytier.android.ui.screens.settings
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +52,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.easytier.android.ui.components.AppCard
 import com.easytier.android.ui.components.AppSnackbarHost
 import com.easytier.android.ui.components.PillBadge
+import com.easytier.android.ui.components.rememberHaptics
 import com.easytier.android.ui.icons.AppIcons
 import com.easytier.android.util.DnsServers
 import kotlinx.coroutines.launch
@@ -68,6 +71,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val haptics = rememberHaptics()
 
     Scaffold(
         snackbarHost = { AppSnackbarHost(snackbar) },
@@ -103,13 +107,21 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
             val v = raw.trim()
             when {
                 v.isEmpty() -> Unit
-                v in s.dnsServers -> scope.launch {
-                    snackbar.showSnackbar(context.getString(R.string.dns_dup_snack))
+                v in s.dnsServers -> {
+                    haptics.reject()
+                    scope.launch {
+                        snackbar.showSnackbar(context.getString(R.string.dns_dup_snack))
+                    }
                 }
-                !DnsServers.isValid(v) -> scope.launch {
-                    snackbar.showSnackbar(context.getString(R.string.dns_invalid_snack))
+                !DnsServers.isValid(v) -> {
+                    haptics.reject()
+                    scope.launch {
+                        snackbar.showSnackbar(context.getString(R.string.dns_invalid_snack))
+                    }
                 }
-                else -> vm.setDnsServers(s.dnsServers + v)
+                else -> {
+                    vm.setDnsServers(s.dnsServers + v)
+                }
             }
         }
 
@@ -121,7 +133,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                 .imePadding()
                 .padding(horizontal = 16.dp),
         ) {
-            AppCard {
+            AppCard(Modifier.animateContentSize(animationSpec = tween(durationMillis = 200))) {
                 Column(Modifier.padding(vertical = 4.dp)) {
                     // 已添加上游：协议徽标 + 等宽地址 + 删除；空列表回退核心内置默认
                     if (s.dnsServers.isEmpty()) {
@@ -133,7 +145,12 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                         )
                     } else {
                         s.dnsServers.forEachIndexed { i, server ->
-                            ServerRow(server, onDelete = { vm.setDnsServers(s.dnsServers - server) })
+                            ServerRow(
+                                server,
+                                onDelete = {
+                                    vm.setDnsServers(s.dnsServers - server)
+                                },
+                            )
                             if (i < s.dnsServers.lastIndex) {
                                 HorizontalDivider(
                                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -181,7 +198,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
             )
 
-            // 预置快捷添加：点按加入，再点移除（开关式），已加入的带 ✓
+            // 预置快捷添加：点按加入，再点移除（开关式），已加入的带选中态与 ✓
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -191,8 +208,9 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                     val added = url in s.dnsServers
                     val label = stringResource(labelRes)
                     InputChip(
-                        selected = false,
+                        selected = added,
                         onClick = {
+                            haptics.toggle(!added)
                             vm.setDnsServers(if (added) s.dnsServers - url else s.dnsServers + url)
                         },
                         label = { Text(label) },

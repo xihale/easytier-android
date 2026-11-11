@@ -1,5 +1,15 @@
 package com.easytier.android.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +31,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,8 +69,17 @@ fun ServiceHeroCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
-    val start = if (running) HeroStart else HeroIdleStart
-    val end = if (running) HeroEnd else HeroIdleEnd
+    val start by animateColorAsState(
+        targetValue = if (running) HeroStart else HeroIdleStart,
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        label = "heroGradientStart",
+    )
+    val end by animateColorAsState(
+        targetValue = if (running) HeroEnd else HeroIdleEnd,
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        label = "heroGradientEnd",
+    )
+    val haptics = rememberHaptics()
     val serviceLabel = stringResource(R.string.hero_service_cd)
     Column(
         modifier
@@ -70,7 +90,15 @@ fun ServiceHeroCard(
             )
             .clip(MaterialTheme.shapes.extraLarge)
             .drawBehind { drawMeshDecoration() }
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable {
+                        onClick()
+                    }
+                } else {
+                    Modifier
+                },
+            )
             .padding(20.dp),
     ) {
         Row(
@@ -100,19 +128,28 @@ fun ServiceHeroCard(
                             size = 10.dp,
                             pulse = running,
                         )
-                        Text(
-                            statusText,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.White.copy(alpha = 0.9f),
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
+                        AnimatedContent(
+                            targetState = statusText,
+                            transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                            label = "heroStatusText",
+                        ) { text ->
+                            Text(
+                                text,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
                     }
                 }
             }
             Switch(
                 checked = running,
-                onCheckedChange = onToggle,
+                onCheckedChange = {
+                    haptics.toggle(it)
+                    onToggle(it)
+                },
                 // TalkBack 默认只读「开/关」，补上服务名语义
                 modifier = Modifier.semantics { contentDescription = serviceLabel },
                 colors = SwitchDefaults.colors(
@@ -124,23 +161,34 @@ fun ServiceHeroCard(
             )
         }
 
-        if (headline != null) {
-            Spacer(Modifier.height(16.dp))
-            // IPv4 等技术数值用等宽字体（含 '.' 且长度 < 21 视为 IPv4 形态）
-            val baseStyle = MaterialTheme.typography.headlineSmall
-            Text(
-                headline,
-                style = if (headline.contains('.') && headline.length < 21) {
-                    baseStyle.copy(fontFamily = FontFamily.Monospace)
-                } else {
-                    baseStyle
-                },
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-            )
+        AnimatedVisibility(
+            visible = headline != null,
+            enter = expandVertically(tween(260, easing = FastOutSlowInEasing)) + fadeIn(tween(220)),
+            exit = shrinkVertically(tween(200, easing = FastOutSlowInEasing)) + fadeOut(tween(140)),
+        ) {
+            val displayHeadline = headline.orEmpty()
+            Column {
+                Spacer(Modifier.height(16.dp))
+                // IPv4 等技术数值用等宽字体（含 '.' 且长度 < 21 视为 IPv4 形态）
+                val baseStyle = MaterialTheme.typography.headlineSmall
+                Text(
+                    displayHeadline,
+                    style = if (displayHeadline.contains('.') && displayHeadline.length < 21) {
+                        baseStyle.copy(fontFamily = FontFamily.Monospace)
+                    } else {
+                        baseStyle
+                    },
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
 
-        if (stats.isNotEmpty()) {
+        AnimatedVisibility(
+            visible = stats.isNotEmpty(),
+            enter = expandVertically(tween(260, easing = FastOutSlowInEasing)) + fadeIn(tween(220)),
+            exit = shrinkVertically(tween(200, easing = FastOutSlowInEasing)) + fadeOut(tween(140)),
+        ) {
             // 分段式统计行：图标 + 文本 + 竖分隔线；FlowRow 保证窄屏换行而非溢出
             FlowRow(
                 Modifier.fillMaxWidth().padding(top = 14.dp),

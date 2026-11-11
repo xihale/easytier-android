@@ -3,6 +3,13 @@ package com.easytier.android.ui.screens.settings
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,8 +60,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.easytier.android.EasyTierApp
-import com.easytier.android.core.clash.ClashRouteGenerator
-import com.easytier.android.core.engine.InstanceState
 import com.easytier.android.core.vpn.BootCompletedReceiver
 import com.easytier.android.data.store.AppSettings
 import com.easytier.android.data.store.SettingsRepository
@@ -65,11 +70,10 @@ import com.easytier.android.ui.components.OssLicensesDialog
 import com.easytier.android.ui.components.SettingRow
 import com.easytier.android.ui.components.SwitchRow
 import android.net.Uri
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import com.easytier.android.data.update.ReleaseInfo
 import com.easytier.android.data.update.UpdateCheckResult
 import com.easytier.android.ui.components.PillBadge
+import com.easytier.android.ui.components.rememberHaptics
 import com.easytier.android.ui.icons.AppIcons
 import com.easytier.android.util.BackgroundPermission
 import androidx.compose.runtime.LaunchedEffect
@@ -80,7 +84,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -95,9 +98,6 @@ class SettingsViewModel : ViewModel() {
             SharingStarted.Eagerly,
             null,
         )
-
-    /** 引擎运行状态：复制 Clash 路由时用于收集运行中实例的虚拟网段。 */
-    val engineStates = EasyTierApp.get().container.engine.states
 
     fun setTheme(mode: String) = launchIO { repo.setThemeMode(mode) }
 
@@ -182,7 +182,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}, onOpenClashHelp: () -> Unit = {})
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val clipboard = LocalClipboardManager.current
+    val haptics = rememberHaptics()
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showSocks5Dialog by remember { mutableStateOf(false) }
@@ -243,53 +243,25 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}, onOpenClashHelp: () -> Unit = {})
                         checked = s.enableSocks5,
                         onCheckedChange = { vm.setSocks5(it, s.socks5Port) },
                     )
-                    if (s.enableSocks5) {
-                        SettingRow(
-                            title = stringResource(R.string.settings_socks5_port),
-                            icon = AppIcons.Terminal,
-                            onClick = { showSocks5Dialog = true },
-                            trailing = {
-                                Text(
-                                    s.socks5Port.toString(),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                        )
-                        SettingRow(
-                            title = stringResource(R.string.settings_copy_clash),
-                            icon = AppIcons.ContentCopy,
-                            onClick = {
-                                scope.launch {
-                                    val running = vm.engineStates.value.values
-                                        .mapNotNull { it as? InstanceState.Running }
-                                        .map { it.info }
-                                    val saved = EasyTierApp.get().container.networksRepository
-                                        .networks.first().map { it.config }
-                                    val cidrs = ClashRouteGenerator.collectCidrs(running, saved)
-                                    val zones = ClashRouteGenerator.collectDnsZones(saved)
-                                    clipboard.setText(
-                                        AnnotatedString(
-                                            ClashRouteGenerator.generate(s.socks5Port, cidrs, zones),
-                                        ),
+                    AnimatedVisibility(
+                        visible = s.enableSocks5,
+                        enter = expandVertically(tween(220, easing = FastOutSlowInEasing)) + fadeIn(tween(180)),
+                        exit = shrinkVertically(tween(180, easing = FastOutSlowInEasing)) + fadeOut(tween(120)),
+                    ) {
+                        Column {
+                            SettingRow(
+                                title = stringResource(R.string.settings_socks5_port),
+                                icon = AppIcons.Terminal,
+                                onClick = { showSocks5Dialog = true },
+                                trailing = {
+                                    Text(
+                                        s.socks5Port.toString(),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    val summary = buildList {
-                                        if (zones.isNotEmpty()) {
-                                            add(context.getString(R.string.clash_summary_zones, zones.size))
-                                        }
-                                        add(
-                                            if (cidrs.isEmpty()) {
-                                                context.getString(R.string.clash_summary_default)
-                                            } else {
-                                                context.getString(R.string.clash_summary_cidrs, cidrs.size)
-                                            },
-                                        )
-                                    }.joinToString(context.getString(R.string.common_list_separator))
-                                    snackbar.showSnackbar(context.getString(R.string.clash_copied, summary))
-                                }
-                            },
-                            trailing = { Chevron() },
-                        )
+                                },
+                            )
+                        }
                     }
                     SwitchRow(
                         title = stringResource(R.string.settings_start_on_boot),
@@ -388,27 +360,33 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}, onOpenClashHelp: () -> Unit = {})
 
                     Column(Modifier.padding(vertical = 4.dp)) {
                         // 待查看的新版本，突出展示
-                        if (s.pendingUpdateVersion.isNotEmpty()) {
-                            SettingRow(
-                                title = stringResource(R.string.update_new_version_title, s.pendingUpdateVersion),
-                                icon = AppIcons.Download,
-                                onClick = {
-                                    context.startActivity(
-                                        Intent(Intent.ACTION_VIEW, Uri.parse(s.pendingUpdateUrl))
-                                    )
-                                },
-                                trailing = {
-                                    PillBadge(
-                                        text = stringResource(R.string.settings_new_badge),
-                                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                                        labelColor = MaterialTheme.colorScheme.onErrorContainer,
-                                    )
-                                },
-                            )
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                            )
+                        AnimatedVisibility(
+                            visible = s.pendingUpdateVersion.isNotEmpty(),
+                            enter = expandVertically(tween(220, easing = FastOutSlowInEasing)) + fadeIn(tween(180)),
+                            exit = shrinkVertically(tween(180, easing = FastOutSlowInEasing)) + fadeOut(tween(120)),
+                        ) {
+                            Column {
+                                SettingRow(
+                                    title = stringResource(R.string.update_new_version_title, s.pendingUpdateVersion),
+                                    icon = AppIcons.Download,
+                                    onClick = {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(s.pendingUpdateUrl))
+                                        )
+                                    },
+                                    trailing = {
+                                        PillBadge(
+                                            text = stringResource(R.string.settings_new_badge),
+                                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                                            labelColor = MaterialTheme.colorScheme.onErrorContainer,
+                                        )
+                                    },
+                                )
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                )
+                            }
                         }
                         SettingRow(
                             title = stringResource(R.string.settings_check_update),
@@ -507,6 +485,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}, onOpenClashHelp: () -> Unit = {})
                 if (port != null && port in 1024..65535) {
                     vm.setSocks5(s.enableSocks5, port)
                 } else {
+                    haptics.reject()
                     scope.launch {
                         snackbar.showSnackbar(
                             context.getString(R.string.settings_port_invalid, 1024, 65535),
@@ -587,7 +566,9 @@ private fun ChoiceDialog(
                             .selectable(
                                 selected = key == selected,
                                 role = Role.RadioButton,
-                                onClick = { onSelect(key) },
+                                onClick = {
+                                    onSelect(key)
+                                },
                             )
                             .padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,

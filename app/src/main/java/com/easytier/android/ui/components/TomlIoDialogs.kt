@@ -229,6 +229,7 @@ fun TomlImportDialog(
     onImported: (NetworkConfig) -> Unit,
 ) {
     val context = LocalContext.current
+    val haptics = rememberHaptics()
     var value by remember { mutableStateOf(TextFieldValue(initialText)) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -238,7 +239,10 @@ fun TomlImportDialog(
                 error = null
                 onImported(cfg)
             }
-            .onFailure { e -> error = e.message ?: context.getString(R.string.toml_parse_failed) }
+            .onFailure { e ->
+                haptics.reject()
+                error = e.message ?: context.getString(R.string.toml_parse_failed)
+            }
     }
 
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->

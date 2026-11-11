@@ -1,7 +1,15 @@
 package com.easytier.android.ui.screens.networks
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,6 +48,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,11 +57,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import com.easytier.android.R
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -75,6 +84,7 @@ import com.easytier.android.ui.components.EmptyState
 import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.ServiceHeroCard
 import com.easytier.android.ui.components.TomlImportDialog
+import com.easytier.android.ui.components.rememberHaptics
 import com.easytier.android.ui.components.rememberWithVpnPermission
 import com.easytier.android.ui.components.stateAccent
 import com.easytier.android.ui.icons.AppIcons
@@ -138,6 +148,13 @@ fun NetworksScreen(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val haptics = rememberHaptics()
+    val listState = rememberLazyListState()
+    val fabExpanded by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 40
+        }
+    }
     var pendingDelete by remember { mutableStateOf<SavedNetwork?>(null) }
     var showImportDialog by remember { mutableStateOf(false) }
 
@@ -173,6 +190,7 @@ fun NetworksScreen(
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             Modifier.fillMaxSize(),
+            state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -212,7 +230,9 @@ fun NetworksScreen(
 
             item {
                 SectionHeader(stringResource(R.string.networks_mine)) {
-                    TextButton(onClick = { showImportDialog = true }) {
+                    TextButton(onClick = {
+                        showImportDialog = true
+                    }) {
                         Icon(AppIcons.Upload, null, Modifier.size(16.dp))
                         Text(stringResource(R.string.common_import), Modifier.padding(start = 4.dp))
                     }
@@ -231,7 +251,9 @@ fun NetworksScreen(
                             hint = stringResource(R.string.networks_empty_hint),
                         )
                         Spacer(Modifier.height(12.dp))
-                        TextButton(onClick = { showImportDialog = true }) {
+                        TextButton(onClick = {
+                            showImportDialog = true
+                        }) {
                             Icon(AppIcons.Upload, null, Modifier.size(18.dp))
                             Text(stringResource(R.string.networks_import_toml), Modifier.padding(start = 6.dp))
                         }
@@ -276,9 +298,12 @@ fun NetworksScreen(
             )
         }
 
-        // 真悬浮 FAB：叠在列表上方，不再占据底部一整行
+        // 真悬浮 FAB：叠在列表上方，下滑自动收起文案为圆形图标，回顶展开
         ExtendedFloatingActionButton(
-            onClick = onCreateNetwork,
+            onClick = {
+                onCreateNetwork()
+            },
+            expanded = fabExpanded,
             icon = { Icon(Icons.Filled.Add, null) },
             text = { Text(stringResource(R.string.networks_new)) },
             shape = RoundedCornerShape(16.dp),
@@ -293,6 +318,7 @@ fun NetworksScreen(
                 onImported = { cfg ->
                     showImportDialog = false
                     if (networks.any { it.config.networkName == cfg.networkName }) {
+                        haptics.reject()
                         showSnack(context.getString(R.string.networks_import_dup, cfg.networkName))
                     } else {
                         scope.launch {
@@ -320,24 +346,34 @@ private fun NetworkCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val accent = stateAccent(state)
-    val haptics = LocalHapticFeedback.current
+    val rawAccent = stateAccent(state)
+    val accent by animateColorAsState(
+        targetValue = rawAccent,
+        animationSpec = tween(durationMillis = 250),
+        label = "networkCardAccent",
+    )
+    val haptics = rememberHaptics()
     // semantics/customActions 与图标 contentDescription 处非 Composable 实参位置的闭包需提前解析
     val editAction = stringResource(R.string.networks_a11y_edit)
     val deleteAction = stringResource(R.string.networks_a11y_delete)
     val swipeEditLabel = stringResource(R.string.networks_a11y_swipe_edit)
     val swipeDeleteLabel = stringResource(R.string.networks_a11y_swipe_delete)
-    val (subtitle, subtitleColor) = when (state) {
+    val (subtitle, rawSubtitleColor) = when (state) {
         is InstanceState.Running -> (
             state.info.myNodeInfo?.virtualIpv4?.toIpString()
                 ?.let { stringResource(R.string.networks_state_running_ip, it) }
                 ?: stringResource(R.string.networks_state_running)
-            ) to accent
-        is InstanceState.Starting -> stringResource(R.string.state_starting) to accent
-        is InstanceState.Error -> state.message to accent
+            ) to rawAccent
+        is InstanceState.Starting -> stringResource(R.string.state_starting) to rawAccent
+        is InstanceState.Error -> state.message to rawAccent
         null, InstanceState.Stopped -> stringResource(network.config.networkingMethod.labelRes) to
             MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val subtitleColor by animateColorAsState(
+        targetValue = rawSubtitleColor,
+        animationSpec = tween(durationMillis = 250),
+        label = "networkCardSubtitleColor",
+    )
 
     // 确认阈值即触发动作；返回 false 表示不停留在 dismissed，松手自动回弹（带动画/支持 fling）
     val dismissState = rememberSwipeToDismissBoxState(
@@ -353,7 +389,7 @@ private fun NetworkCard(
     LaunchedEffect(dismissState) {
         snapshotFlow { dismissState.targetValue }
             .filter { it != SwipeToDismissBoxValue.Settled }
-            .collect { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+            .collect { haptics.heavy() }
     }
 
     Box(
@@ -370,36 +406,46 @@ private fun NetworkCard(
         SwipeToDismissBox(
             state = dismissState,
             backgroundContent = {
-                // 底层操作区：左滑露出右侧整块红色删除区，右滑露出左侧编辑区
-                // （backgroundContent 是 RowScope，没有 matchParentSize，用 fillMaxSize 填满内容高度）
-                Row(Modifier.fillMaxSize()) {
-                    // 右滑编辑：左侧蓝底
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.large),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
+                val direction = dismissState.dismissDirection
+                val armed = dismissState.targetValue != SwipeToDismissBoxValue.Settled
+                val iconScale by animateFloatAsState(
+                    targetValue = if (armed) 1.15f else 0.88f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium,
+                    ),
+                    label = "swipeIconScale",
+                )
+                val bgColor = when (direction) {
+                    SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
+                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                    SwipeToDismissBoxValue.Settled -> Color.Transparent
+                }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(bgColor, MaterialTheme.shapes.large)
+                        .padding(horizontal = 22.dp),
+                    contentAlignment = when (direction) {
+                        SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                        SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+                        SwipeToDismissBoxValue.Settled -> Alignment.Center
+                    },
+                ) {
+                    when (direction) {
+                        SwipeToDismissBoxValue.StartToEnd -> Icon(
                             Icons.Filled.Edit,
                             swipeEditLabel,
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.scale(iconScale),
                         )
-                    }
-                    // 左滑删除：右侧红底
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.errorContainer, MaterialTheme.shapes.large),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
+                        SwipeToDismissBoxValue.EndToStart -> Icon(
                             Icons.Filled.Delete,
                             swipeDeleteLabel,
                             tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.scale(iconScale),
                         )
+                        SwipeToDismissBoxValue.Settled -> Unit
                     }
                 }
             },
@@ -408,7 +454,9 @@ private fun NetworkCard(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clickable { onEdit() }
+                        .clickable {
+                            onEdit()
+                        }
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -451,7 +499,7 @@ private fun NetworkCard(
 
 /**
  * 自绘圆形勾选框（替代 M3 Checkbox）：22dp 圆。
- * 未选：2dp outline 描边透明底；选中：primary 实心 + 白色 14dp 对勾，颜色 150ms 过渡。
+ * 未选：2dp outline 描边透明底；选中：primary 实心 + 白色 14dp 对勾，颜色与缩放弹性过渡。
  * 外层保留最小交互尺寸与 Checkbox 语义角色，触控热区与 TalkBack 行为不变。
  */
 @Composable
@@ -460,6 +508,7 @@ private fun RoundCheckbox(
     onCheckedChange: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberHaptics()
     val fillColor by animateColorAsState(
         targetValue = if (checked) MaterialTheme.colorScheme.primary else Color.Transparent,
         animationSpec = tween(durationMillis = 150),
@@ -479,7 +528,10 @@ private fun RoundCheckbox(
                     Modifier.toggleable(
                         value = checked,
                         role = Role.Checkbox,
-                        onValueChange = onCheckedChange,
+                        onValueChange = {
+                            haptics.toggle(it)
+                            onCheckedChange(it)
+                        },
                     )
                 } else {
                     Modifier
@@ -494,7 +546,16 @@ private fun RoundCheckbox(
                 .border(2.dp, strokeColor, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            if (checked) {
+            AnimatedVisibility(
+                visible = checked,
+                enter = scaleIn(
+                    spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium,
+                    ),
+                ) + fadeIn(tween(120)),
+                exit = scaleOut(tween(110)) + fadeOut(tween(90)),
+            ) {
                 Icon(
                     Icons.Filled.Check,
                     null,

@@ -1,8 +1,14 @@
 package com.easytier.android.ui.screens.status
 
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -240,7 +246,9 @@ fun StatusScreen(
                             PeerCard(
                                 tagged.pair,
                                 networkName = if (multi) tagged.network else null,
-                                onClick = { selectedPeer = tagged },
+                                onClick = {
+                                    selectedPeer = tagged
+                                },
                                 onLongClick = {
                                     tagged.pair.route.ipv4Addr?.toIpString()?.let(copyIpToClipboard)
                                 },
@@ -317,12 +325,16 @@ private fun NodeInfoCard(
     onCopyIp: (String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val chevronRotation by animateFloatAsState(if (expanded) 180f else 0f, tween(200), label = "chevron")
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "chevron",
+    )
     val single = running.singleOrNull()?.second
     val hostLabel = stringResource(R.string.status_hostname)
     val copyIpLabel = stringResource(R.string.common_copy_ip)
 
-    AppCard(Modifier.animateContentSize(animationSpec = tween(200))) {
+    AppCard {
         Column(Modifier.padding(16.dp).fillMaxWidth()) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -335,7 +347,12 @@ private fun NodeInfoCard(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Row(
-                    Modifier.clickable { expanded = !expanded }.padding(4.dp),
+                    Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            expanded = !expanded
+                        }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -371,14 +388,24 @@ private fun NodeInfoCard(
                     InfoRow(hostLabel, single.myNodeInfo?.hostname ?: "--")
                     // myNodeInfo 为 null 时 toString() 会显示字面量 "null"，改为占位符
                     InfoRow("Peer ID", single.myNodeInfo?.peerId?.takeIf { it != 0L }?.toString() ?: "--")
-                    if (expanded) NodeDetails(single)
+                    AnimatedVisibility(
+                        visible = expanded,
+                        enter = expandVertically(tween(220, easing = FastOutSlowInEasing)) + fadeIn(tween(180)),
+                        exit = shrinkVertically(tween(180, easing = FastOutSlowInEasing)) + fadeOut(tween(120)),
+                    ) {
+                        Column { NodeDetails(single) }
+                    }
                 }
             } else {
                 Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     running.forEach { (name, info) ->
                         val ip = info.myNodeInfo?.virtualIpv4?.toIpString() ?: "--"
                         InfoRow(name, ip)
-                        if (expanded) {
+                        AnimatedVisibility(
+                            visible = expanded,
+                            enter = expandVertically(tween(220, easing = FastOutSlowInEasing)) + fadeIn(tween(180)),
+                            exit = shrinkVertically(tween(180, easing = FastOutSlowInEasing)) + fadeOut(tween(120)),
+                        ) {
                             Column(Modifier.padding(start = 4.dp, bottom = 8.dp)) {
                                 InfoRow(hostLabel, info.myNodeInfo?.hostname ?: "--")
                                 InfoRow("Peer ID", info.myNodeInfo?.peerId?.takeIf { it != 0L }?.toString() ?: "--")
@@ -553,7 +580,7 @@ private fun PeerCard(
     } else {
         latencyFmt.format(badge.latencyMs ?: 0L)
     }
-    val (latencyContainer, latencyLabel) = when (badge.tier) {
+    val (rawLatencyContainer, rawLatencyLabel) = when (badge.tier) {
         LatencyTier.NEUTRAL -> Pair(
             MaterialTheme.colorScheme.surfaceContainerHigh,
             MaterialTheme.colorScheme.onSurfaceVariant,
@@ -562,6 +589,16 @@ private fun PeerCard(
         LatencyTier.FAIR -> Pair(statusColors.warningContainer, statusColors.onWarningContainer)
         LatencyTier.BAD -> Pair(MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
     }
+    val latencyContainer by animateColorAsState(
+        targetValue = rawLatencyContainer,
+        animationSpec = tween(durationMillis = 250),
+        label = "peerLatencyContainer",
+    )
+    val latencyLabel by animateColorAsState(
+        targetValue = rawLatencyLabel,
+        animationSpec = tween(durationMillis = 250),
+        label = "peerLatencyLabel",
+    )
 
     AppCard {
         Column(

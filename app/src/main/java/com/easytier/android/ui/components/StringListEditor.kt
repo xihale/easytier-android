@@ -1,5 +1,7 @@
 package com.easytier.android.ui.components
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -7,6 +9,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -23,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.easytier.android.R
 
@@ -40,8 +45,25 @@ fun StringListEditor(
     placeholder: String = "",
 ) {
     var input by remember { mutableStateOf("") }
+    val haptics = rememberHaptics()
 
-    Column(modifier.fillMaxWidth()) {
+    fun submitAdd() {
+        val v = input.trim()
+        if (v.isBlank()) return
+        // 去重：同名条目对引擎是重复配置
+        if (v !in items) {
+            onChange(items + v)
+        } else {
+            haptics.reject()
+        }
+        input = ""
+    }
+
+    Column(
+        modifier
+            .fillMaxWidth()
+            .animateContentSize(animationSpec = tween(durationMillis = 180)),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = input,
@@ -49,15 +71,13 @@ fun StringListEditor(
                 label = { Text(label) },
                 placeholder = if (placeholder.isNotBlank()) ({ Text(placeholder) }) else null,
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submitAdd() }),
                 modifier = Modifier.weight(1f),
             )
             IconButton(
-                onClick = {
-                    val v = input.trim()
-                    // 去重：同名条目对引擎是重复配置
-                    if (v.isNotBlank() && v !in items) onChange(items + v)
-                    input = ""
-                },
+                onClick = ::submitAdd,
+                enabled = input.isNotBlank(),
             ) {
                 Icon(Icons.Filled.Add, stringResource(R.string.common_add))
             }

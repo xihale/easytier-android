@@ -7,6 +7,7 @@ import com.easytier.android.data.model.NetworkConfig
 import com.easytier.android.data.model.NetworkInstanceRunningInfo
 import com.easytier.android.data.model.Route
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -30,10 +31,12 @@ class ClashRouteGeneratorTest {
     }
 
     @Test
-    fun `empty cidrs falls back to default virtual cidr`() {
+    fun `empty cidrs emits no fabricated rules`() {
         val text = ClashRouteGenerator.generate(7890, emptyList())
         assertTrue(text.contains("port: 7890"))
-        assertTrue(text.contains("IP-CIDR,${ClashRouteGenerator.DEFAULT_VIRTUAL_CIDR}"))
+        // 未检测到网段时不得虚构任何 IP（EasyTier 默认池 10.126.126.0/24 也不允许出现）
+        assertFalse(text.contains("IP-CIDR"))
+        assertFalse(text.contains("10.126"))
     }
 
     @Test
