@@ -9,7 +9,7 @@
 +  // Entries are URLs: udp://host[:port], tcp://host[:port], tls://host[:port]
 +  // (DNS over TLS, default port 853) or https://host[:port][/path]
 +  // (DNS over HTTPS, default port 443). Empty = system resolv.conf or
-+  // built-in defaults. Hostnames are resolved once at server startup.
++  // built-in defaults. Hostnames expand to all resolved/bootstrap addresses.
 +  repeated string dns_forward_servers = 45;
  }
  
@@ -67,7 +67,7 @@
  #[derive(Serialize, Deserialize, Debug, Clone, derive_builder::Builder)]
 --- a/easytier/src/instance/dns_server/server.rs
 +++ b/easytier/src/instance/dns_server/server.rs
-@@ -83,13 +83,25 @@
+@@ -83,13 +83,30 @@
              catalog.upsert(zone.clone().into(), vec![Arc::new(authroty)]);
          }
  
@@ -86,9 +86,14 @@
 +                system_conf.1,
 +            )
 +        } else {
++            let mut opts = ResolverOpts::default();
++            opts.cache_size = 512;
++            opts.timeout = std::time::Duration::from_secs(3);
++            opts.attempts = 2;
++            opts.try_tcp_on_error = true;
 +            (
 +                config.forward_nameservers().clone(),
-+                ResolverOpts::default(),
++                opts,
 +            )
 +        };
          let forward_config = ForwardConfig {
@@ -99,7 +104,7 @@
                  .iter()
                  .filter(|&x| {
                      !config
-@@ -99,7 +111,7 @@
+@@ -99,7 +116,7 @@
                  .cloned()
                  .collect::<Vec<_>>()
                  .into(),
@@ -130,16 +135,17 @@
              .excluded_forward_nameservers(vec![fake_ip.into()])
              .build()?;
          let mut dns_server = Server::new(dns_config);
-@@ -455,3 +459,70 @@
+@@ -455,3 +459,124 @@
          println!("MagicDnsServerInstance dropped");
      }
  }
 +
 +/// Resolves the `dns_forward_servers` flag into hickory name server configs.
 +/// Entries that fail to parse or resolve are skipped with a warning, so one
-+/// bad entry cannot take down the whole forwarder. Hostnames are resolved
-+/// once here via the system resolver and the resulting address is pinned;
-+/// TLS names are kept for certificate validation.
++/// bad entry cannot take down the whole forwarder. Well-known public DoT/DoH
++/// providers expand via built-in bootstrap IPs (immune to offline boot races
++/// and active-TUN self-lookup loops); custom hostnames expand to all resolved
++/// addresses (IPv4 first, then IPv6) under a bounded timeout.
 +async fn resolve_dns_forward_servers(urls: Vec<String>) -> Vec<NameServerConfig> {
 +    let mut ret = Vec::new();
 +    for raw in urls {
@@ -147,20 +153,48 @@
 +            continue;
 +        }
 +        match parse_dns_forward_server(raw.trim()).await {
-+            Ok(config) => ret.push(config),
++            Ok(configs) => ret.extend(configs),
 +            Err(error) => {
 +                tracing::warn!(url = %raw, ?error, "invalid dns_forward_servers entry, skipped");
 +            }
 +        }
 +    }
 +    if !ret.is_empty() {
-+        tracing::info!(servers = ?ret, "using explicitly configured dns forward servers");
++        tracing::info!(count = ret.len(), "using explicitly configured dns forward servers");
 +    }
 +    ret
 +}
 +
-+async fn parse_dns_forward_server(raw: &str) -> anyhow::Result<NameServerConfig> {
++fn bootstrap_dns_ips(host: &str) -> &'static [&'static str] {
++    match host.to_ascii_lowercase().as_str() {
++        "dns.alidns.com" => &[
++            "223.5.5.5",
++            "223.6.6.6",
++            "2400:3200::1",
++            "2400:3200:baba::1",
++        ],
++        "doh.pub" | "dot.pub" => &["1.12.12.12", "120.53.53.53"],
++        "doh.360.cn" | "dot.360.cn" => &["101.226.4.6", "218.30.118.6"],
++        "dns.google" => &[
++            "8.8.8.8",
++            "8.8.4.4",
++            "2001:4860:4860::8888",
++            "2001:4860:4860::8844",
++        ],
++        "cloudflare-dns.com" | "one.one.one.one" | "1dot1dot1dot1.cloudflare-dns.com" => &[
++            "1.1.1.1",
++            "1.0.0.1",
++            "2606:4700:4700::1111",
++            "2606:4700:4700::1001",
++        ],
++        "dns.quad9.net" => &["9.9.9.9", "149.112.112.112", "2620:fe::fe"],
++        _ => &[],
++    }
++}
++
++async fn parse_dns_forward_server(raw: &str) -> anyhow::Result<Vec<NameServerConfig>> {
 +    use hickory_proto::xfer::Protocol;
++    use std::net::{IpAddr, SocketAddr};
 +
 +    let parsed = url::Url::parse(raw)?;
 +    let protocol = match parsed.scheme().to_ascii_lowercase().as_str() {
@@ -170,10 +204,12 @@
 +        "https" => Protocol::Https,
 +        other => anyhow::bail!("unsupported scheme {}, expect udp/tcp/tls/https", other),
 +    };
-+    let host = parsed
-+        .host_str()
-+        .context("missing server host")
-+        .map(str::to_owned)?;
++    let raw_host = parsed.host_str().context("missing server host")?;
++    let host = raw_host
++        .strip_prefix('[')
++        .and_then(|s| s.strip_suffix(']'))
++        .unwrap_or(raw_host)
++        .to_owned();
 +    let default_port = match protocol {
 +        Protocol::Udp | Protocol::Tcp => 53,
 +        Protocol::Tls => 853,
@@ -181,25 +217,48 @@
 +    };
 +    let port = parsed.port().unwrap_or(default_port);
 +
-+    // Pin the address once at startup: hickory does not bootstrap hostnames
-+    // for forwarder entries on its own. Literal IPs skip the lookup.
-+    let socket_addr = tokio::net::lookup_host((host.as_str(), port))
-+        .await
-+        .with_context(|| format!("failed to resolve dns forward server host {host}"))?
-+        .next()
-+        .with_context(|| format!("no address found for dns forward server host {host}"))?;
-+
-+    let mut config = NameServerConfig::new(socket_addr, protocol);
-+    if matches!(protocol, Protocol::Tls | Protocol::Https) {
-+        config.tls_dns_name = Some(host);
-+    }
-+    if protocol == Protocol::Https {
-+        let path = parsed.path();
-+        if !path.is_empty() && path != "/" {
-+            config.http_endpoint = Some(path.to_string());
++    let mut addrs: Vec<SocketAddr> = if let Ok(ip) = host.parse::<IpAddr>() {
++        vec![SocketAddr::new(ip, port)]
++    } else {
++        let bootstrap = bootstrap_dns_ips(&host);
++        if !bootstrap.is_empty() {
++            bootstrap
++                .iter()
++                .filter_map(|s| s.parse::<IpAddr>().ok().map(|ip| SocketAddr::new(ip, port)))
++                .collect()
++        } else {
++            tokio::time::timeout(
++                std::time::Duration::from_secs(3),
++                tokio::net::lookup_host((host.as_str(), port)),
++            )
++            .await
++            .with_context(|| format!("dns lookup timed out for forward server host {host}"))?
++            .with_context(|| format!("failed to resolve dns forward server host {host}"))?
++            .collect()
 +        }
-+    }
-+    Ok(config)
++    };
++    addrs.sort_by_key(|a| if a.is_ipv4() { 0u8 } else { 1u8 });
++    addrs.dedup();
++    anyhow::ensure!(
++        !addrs.is_empty(),
++        "no address found for dns forward server host {host}"
++    );
++
++    let tls_name = matches!(protocol, Protocol::Tls | Protocol::Https).then_some(host);
++    let http_endpoint = (protocol == Protocol::Https)
++        .then(|| parsed.path())
++        .filter(|p| !p.is_empty() && *p != "/")
++        .map(str::to_owned);
++
++    Ok(addrs
++        .into_iter()
++        .map(|socket_addr| {
++            let mut config = NameServerConfig::new(socket_addr, protocol);
++            config.tls_dns_name = tls_name.clone();
++            config.http_endpoint = http_endpoint.clone();
++            config
++        })
++        .collect())
 +}
 --- a/easytier/Cargo.toml
 +++ b/easytier/Cargo.toml

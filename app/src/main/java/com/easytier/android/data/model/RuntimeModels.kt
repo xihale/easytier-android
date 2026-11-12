@@ -1,7 +1,13 @@
 package com.easytier.android.data.model
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 import androidx.annotation.StringRes
 import com.easytier.android.R
@@ -27,7 +33,7 @@ fun isLocalAddress(ip: String): Boolean {
         v.startsWith("127.") -> true
         v.startsWith("10.") -> true
         v.startsWith("192.168.") -> true
-        v.startsWith("169.254.") || v.startsWith("fe80") || v.startsWith("fe90") -> true
+        v.startsWith("169.254.") || isIpv6LinkLocal(v) -> true
         v.startsWith("172.") -> {
             val second = v.split('.').getOrNull(1)?.toIntOrNull() ?: 0
             second in 16..31
@@ -35,6 +41,20 @@ fun isLocalAddress(ip: String): Boolean {
         v.startsWith("fc") || v.startsWith("fd") -> true // IPv6 ULA
         else -> false
     }
+}
+
+/**
+ * IPv6 链路本地地址判定（RFC 4291 fe80::/10：fe80:: ~ febf:: 全段）。
+ * 只认完整形式：前 3 字符为 fe8/fe9/fea/feb 且第 4 字符是十六进制、含冒号。
+ * 缩写形式（如 fe8::1 展开为 0fe8::）不属于链路本地，被第 4 字符校验自然排除。
+ */
+private fun isIpv6LinkLocal(v: String): Boolean {
+    if (v.length < 5 || !v.contains(':')) return false
+    when (v.substring(0, 3)) {
+        "fe8", "fe9", "fea", "feb" -> Unit
+        else -> return false
+    }
+    return v[3] in '0'..'9' || v[3] in 'a'..'f'
 }
 
 /** 公网 IP 列表：过滤本地/内网地址（::1、127.x、192.168.x 等不展示）。 */
@@ -96,7 +116,24 @@ data class StunInfo(
     @SerialName("public_ip") val publicIp: List<String> = emptyList(),
 )
 
-@Serializable
+/**
+ * NAT 类型反序列化兜底：上游 EasyTier 新增 NAT 枚举变体时，旧版 App 的
+ * NetworkInstanceRunningInfo JSON 解码不应整体失败——未知值回退为 [NatType.Unknown]。
+ */
+object NatTypeSerializer : KSerializer<NatType> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("NatType", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: NatType) = encoder.encodeString(value.name)
+
+    override fun deserialize(decoder: Decoder): NatType {
+        val raw = decoder.decodeString()
+        return NatType.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) }
+            ?: NatType.Unknown
+    }
+}
+
+@Serializable(with = NatTypeSerializer::class)
 enum class NatType {
     Unknown, OpenInternet, NoPAT, FullCone, Restricted, PortRestricted,
     Symmetric, SymUdpFirewall, SymmetricEasyInc, SymmetricEasyDec;

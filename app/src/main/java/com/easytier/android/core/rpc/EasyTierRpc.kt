@@ -1,8 +1,11 @@
 package com.easytier.android.core.rpc
 
 import com.easytier.jni.EasyTierJNI
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -34,12 +37,27 @@ object EasyTierRpc {
         methodName: String,
         payload: JsonObject,
         domainName: String? = null,
-    ): Result<JsonObject> = withContext(Dispatchers.IO) {
-        runCatching {
-            val resp = EasyTierJNI.callJsonRpc(serviceName, methodName, domainName, payload.toString())
-                ?: throw IllegalStateException(EasyTierJNI.getLastError() ?: "RPC 无响应")
-            json.parseToJsonElement(resp) as? JsonObject
-                ?: throw IllegalStateException("RPC 响应非 JSON 对象: $resp")
+        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+    ): Result<JsonObject> = try {
+        withTimeout(timeoutMs) {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val resp = EasyTierJNI.callJsonRpc(serviceName, methodName, domainName, payload.toString())
+                        ?: throw IllegalStateException(EasyTierJNI.getLastError() ?: "RPC 无响应")
+                    json.parseToJsonElement(resp) as? JsonObject
+                        ?: throw IllegalStateException("RPC 响应非 JSON 对象: $resp")
+                }
+            }
         }
+    } catch (e: TimeoutCancellationException) {
+        // JNI 调用卡死（如核心线程池饱和）只让本次调用失败，不能拖死调用方协程
+        Result.failure(e)
+    } catch (e: CancellationException) {
+        // 外层协程被取消：必须继续向上传播
+        throw e
+    } catch (t: Throwable) {
+        Result.failure(t)
     }
+
+    const val DEFAULT_TIMEOUT_MS = 10_000L
 }

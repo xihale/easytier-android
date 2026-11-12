@@ -94,6 +94,12 @@ class QuickSettingsTileService : TileService() {
 
     /** 刷新磁贴状态；勾选情况未知时按可用来处理。 */
     private fun update(running: Boolean, hasEnabledNetworks: Boolean = true) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            // qsTile 的读写与 updateTile() 必须在主线程：collect 在 applicationScope
+            // （Dispatchers.Default）上跑，非主线程时转发回主线程再改磁贴。
+            mainHandler.post { update(running, hasEnabledNetworks) }
+            return
+        }
         val tile = qsTile ?: return
         tile.state = when {
             !hasEnabledNetworks -> Tile.STATE_UNAVAILABLE

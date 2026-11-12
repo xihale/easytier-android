@@ -29,6 +29,9 @@ jobs:
       - name: Build EasyTier JNI .so from upstream source
         uses: ./.github/actions/fetch-jni
 
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
       - name: Check and decode signing keystore
         env:
           SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}

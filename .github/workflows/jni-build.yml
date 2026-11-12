@@ -9,6 +9,14 @@ on:
         description: '版本标注（建议上游核心版本或 commit，如 2.3.1 或 abc1234）'
         required: false
         default: ''
+      upstream_ref:
+        description: 'Optional upstream EasyTier tag or commit SHA override'
+        required: false
+        default: ''
+
+concurrency:
+  group: jni-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -23,6 +31,8 @@ jobs:
         with:
           repository: EasyTier/EasyTier
           path: easytier-upstream
+          # 留空时 checkout 默认分支；填上游 tag / SHA 时构建指定版本
+          ref: ${{ inputs.upstream_ref }}
 
       - name: Apply repo patches to upstream
         run: |
@@ -58,6 +68,9 @@ jobs:
       - name: Build libeasytier_android_jni.so (arm64-v8a)
         env:
           ANDROID_NDK_ROOT: /usr/local/lib/android/sdk/ndk-bundle
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+          CARGO_PROFILE_RELEASE_STRIP: symbols
         run: |
           set -e
           if [ ! -d "$ANDROID_NDK_ROOT" ]; then
@@ -71,6 +84,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/jni"
           cp "$GITHUB_WORKSPACE/easytier-upstream/target/aarch64-linux-android/release/libeasytier_android_jni.so" \
              "$RUNNER_TEMP/jni/libeasytier_android_jni-arm64-v8a.so"
+          # 发布产物附 sha256 校验和（相对路径哈希，供下游 sha256sum -c 校验）
+          (
+            cd "$RUNNER_TEMP/jni" && \
+            sha256sum libeasytier_android_jni-arm64-v8a.so > libeasytier_android_jni-arm64-v8a.so.sha256
+          )
 
       - name: Determine release tag
         id: tag
@@ -93,4 +111,6 @@ jobs:
             版本标注：${{ inputs.version || '自动生成' }}
             上游 commit：${{ steps.upstream.outputs.sha }}
             本仓库 patches/*.patch 已在构建时应用（LGPL 修改源码见对应文件）
-          files: ${{ runner.temp }}/jni/libeasytier_android_jni-arm64-v8a.so
+          files: |
+            ${{ runner.temp }}/jni/libeasytier_android_jni-arm64-v8a.so
+            ${{ runner.temp }}/jni/libeasytier_android_jni-arm64-v8a.so.sha256

@@ -41,10 +41,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import com.easytier.android.ui.components.SharedPulseProvider
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -94,6 +98,9 @@ class StatusViewModel(val container: AppContainer) : ViewModel() {
 
     val states = container.engine.states
 
+    private val rxHistoryDeque = ArrayDeque<Long>(HISTORY_LEN)
+    private val txHistoryDeque = ArrayDeque<Long>(HISTORY_LEN)
+
     private val _rxRateHistory = MutableStateFlow<List<Long>>(emptyList())
     val rxRateHistory = _rxRateHistory.asStateFlow()
 
@@ -111,16 +118,21 @@ class StatusViewModel(val container: AppContainer) : ViewModel() {
             lastTxTotal = -1
             return
         }
-        val rx = running.sumOf { it.info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.rxBytesLong ?: 0 } } }
-        val tx = running.sumOf { it.info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.txBytesLong ?: 0 } } }
+        val rx = running.sumOf { it.info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.rxBytesLong ?: 0L } } }
+        val tx = running.sumOf { it.info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.txBytesLong ?: 0L } } }
 
-        val rxRate = if (lastRxTotal in 0 until rx) (rx - lastRxTotal) / TICK_SEC else 0
-        val txRate = if (lastTxTotal in 0 until tx) (tx - lastTxTotal) / TICK_SEC else 0
+        val rxRate = if (lastRxTotal in 0 until rx) (rx - lastRxTotal) / TICK_SEC else 0L
+        val txRate = if (lastTxTotal in 0 until tx) (tx - lastTxTotal) / TICK_SEC else 0L
         lastRxTotal = rx
         lastTxTotal = tx
 
-        _rxRateHistory.value = (_rxRateHistory.value + rxRate).takeLast(HISTORY_LEN)
-        _txRateHistory.value = (_txRateHistory.value + txRate).takeLast(HISTORY_LEN)
+        if (rxHistoryDeque.size >= HISTORY_LEN) rxHistoryDeque.removeFirst()
+        rxHistoryDeque.addLast(rxRate)
+        if (txHistoryDeque.size >= HISTORY_LEN) txHistoryDeque.removeFirst()
+        txHistoryDeque.addLast(txRate)
+
+        _rxRateHistory.value = rxHistoryDeque.toList()
+        _txRateHistory.value = txHistoryDeque.toList()
     }
 
     companion object {
@@ -140,9 +152,9 @@ fun StatusScreen(
     container: AppContainer,
 ) {
     val vm: StatusViewModel = viewModel { StatusViewModel(container) }
-    val states by vm.states.collectAsState()
-    val rxHistory by vm.rxRateHistory.collectAsState()
-    val txHistory by vm.txRateHistory.collectAsState()
+    val states by vm.states.collectAsStateWithLifecycle()
+    val rxHistory by vm.rxRateHistory.collectAsStateWithLifecycle()
+    val txHistory by vm.txRateHistory.collectAsStateWithLifecycle()
 
     // IP 点击复制反馈：剪贴板写入 + 底部 Snackbar「已复制」（LocalClipboardManager + AnnotatedString）
     val snackbarHostState = remember { SnackbarHostState() }
@@ -156,10 +168,13 @@ fun StatusScreen(
     // 单击节点卡打开详情对话框；长按复制 IP
     var selectedPeer by remember { mutableStateOf<TaggedPeer?>(null) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(2000)
-            vm.tick()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(2000)
+                vm.tick()
+            }
         }
     }
 
@@ -182,11 +197,15 @@ fun StatusScreen(
             }
         }
     }
-    val rxTotal = running.sumOf { (_, info) ->
-        info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.rxBytesLong ?: 0 } }
+    val rxTotal = remember(running) {
+        running.sumOf { (_, info) ->
+            info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.rxBytesLong ?: 0L } }
+        }
     }
-    val txTotal = running.sumOf { (_, info) ->
-        info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.txBytesLong ?: 0 } }
+    val txTotal = remember(running) {
+        running.sumOf { (_, info) ->
+            info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.txBytesLong ?: 0L } }
+        }
     }
     // 外层 Box 承载内容与全局 SnackbarHost；空状态与列表两个分支都包在 Box 内
     Box(Modifier.fillMaxSize()) {
@@ -206,53 +225,55 @@ fun StatusScreen(
                 )
             }
         } else {
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                item { NodeInfoCard(running, onCopyIp = copyIpToClipboard) }
-                item {
-                    TrafficCard(
-                        rxRate = rxHistory.lastOrNull() ?: 0,
-                        txRate = txHistory.lastOrNull() ?: 0,
-                        rxHistory = rxHistory,
-                        txHistory = txHistory,
-                        rxTotal = rxTotal,
-                        txTotal = txTotal,
-                    )
-                }
-
-                item { SectionHeader(stringResource(R.string.status_peers_header, taggedPeers.size)) }
-                if (taggedPeers.isEmpty()) {
+            SharedPulseProvider {
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    item { NodeInfoCard(running, onCopyIp = copyIpToClipboard) }
                     item {
-                        AppCard {
-                            Text(
-                                stringResource(R.string.status_peers_empty),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(16.dp),
-                            )
-                        }
+                        TrafficCard(
+                            rxRate = rxHistory.lastOrNull() ?: 0,
+                            txRate = txHistory.lastOrNull() ?: 0,
+                            rxHistory = rxHistory,
+                            txHistory = txHistory,
+                            rxTotal = rxTotal,
+                            txTotal = txTotal,
+                        )
                     }
-                } else {
-                    items(
-                        taggedPeers,
-                        // peerId 在同一 network 内唯一；不要掺入位置 index，否则 key 随重排变化失去稳定意义
-                        key = { p -> "${p.network}-${p.pair.route.peerId}-${p.pair.defaultConn?.connId ?: ""}" },
-                        contentType = { "peer" },
-                    ) { tagged ->
-                        Box(Modifier.animateItem()) {
-                            PeerCard(
-                                tagged.pair,
-                                networkName = if (multi) tagged.network else null,
-                                onClick = {
-                                    selectedPeer = tagged
-                                },
-                                onLongClick = {
-                                    tagged.pair.route.ipv4Addr?.toIpString()?.let(copyIpToClipboard)
-                                },
-                            )
+
+                    item { SectionHeader(stringResource(R.string.status_peers_header, taggedPeers.size)) }
+                    if (taggedPeers.isEmpty()) {
+                        item {
+                            AppCard {
+                                Text(
+                                    stringResource(R.string.status_peers_empty),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(16.dp),
+                                )
+                            }
+                        }
+                    } else {
+                        items(
+                            taggedPeers,
+                            // peerId 在同一 network 内唯一；不要掺入位置 index，否则 key 随重排变化失去稳定意义
+                            key = { p -> "${p.network}-${p.pair.route.peerId}-${p.pair.defaultConn?.connId ?: ""}" },
+                            contentType = { "peer" },
+                        ) { tagged ->
+                            Box(Modifier.animateItem()) {
+                                PeerCard(
+                                    tagged.pair,
+                                    networkName = if (multi) tagged.network else null,
+                                    onClick = {
+                                        selectedPeer = tagged
+                                    },
+                                    onLongClick = {
+                                        tagged.pair.route.ipv4Addr?.toIpString()?.let(copyIpToClipboard)
+                                    },
+                                )
+                            }
                         }
                     }
                 }

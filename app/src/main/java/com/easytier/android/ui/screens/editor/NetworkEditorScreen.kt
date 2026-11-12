@@ -53,7 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -213,10 +213,10 @@ fun NetworkEditorScreen(
     onSaved: (String) -> Unit = { _ -> onBack() },
 ) {
     val vm: EditorViewModel = viewModel { EditorViewModel(container) }
-    val network by vm.network.collectAsState()
-    val original by vm.original.collectAsState()
-    val notFound by vm.notFound.collectAsState()
-    val saveError by vm.saveError.collectAsState()
+    val network by vm.network.collectAsStateWithLifecycle()
+    val original by vm.original.collectAsStateWithLifecycle()
+    val notFound by vm.notFound.collectAsStateWithLifecycle()
+    val saveError by vm.saveError.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -260,7 +260,7 @@ fun NetworkEditorScreen(
     // VPN 关闭（仅引擎模式）时无需系统 VPN 权限
     val enableVpn by remember(container) {
         container.settingsRepository.settings.map { it.enableVpn }
-    }.collectAsState(initial = true)
+    }.collectAsStateWithLifecycle(initialValue = true)
 
     // 保存并启用：启用即可能建 TUN，先确保 VPN 已授权
     val saveAndEnableWithPermission = rememberWithVpnPermission(enabled = enableVpn) {

@@ -1,5 +1,6 @@
 package com.easytier.android.data.model
 
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -50,6 +51,28 @@ class RuntimeDisplayTest {
         assertFalse(isLocalAddress("8.8.8.8"))
         assertFalse(isLocalAddress("172.32.0.1")) // 172.32 不在私有段
         assertFalse(isLocalAddress("2402:9400::1"))
+    }
+
+    @Test
+    fun `ipv6 link-local covers full fe80 to febf range (rfc4291)`() {
+        // fe80::/10 = fe80:: ~ febf::：第二字节任意十六进制都算链路本地
+        assertTrue(isLocalAddress("fe80::1"))
+        assertTrue(isLocalAddress("fe90::abcd"))
+        assertTrue(isLocalAddress("fea0::abcd"))
+        assertTrue(isLocalAddress("febf::1"))
+        // febf 是边界；febf 之后的 fec0 系 site-local，不在此段
+        assertFalse(isLocalAddress("fec0::1"))
+        // 缩写形式 0fe8:: 展开后不是 fe80::/10，且第三位非 fe8/fe9/fea/feb 前缀
+        assertFalse(isLocalAddress("2001:db8::1"))
+    }
+
+    @Test
+    fun `unknown nat variant decodes to unknown instead of crashing`() {
+        // 上游新增 NAT 枚举变体时，旧版 App 的 JSON 解码必须兜底为 Unknown
+        val json = Json { ignoreUnknownKeys = true }
+        assertEquals(NatType.Unknown, json.decodeFromString<NatType>("\"BrandNewFutureNatVariant\""))
+        // 已知变体大小写不敏感匹配
+        assertEquals(NatType.FullCone, json.decodeFromString<NatType>("\"FullCone\""))
     }
 }
 

@@ -36,11 +36,15 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.State
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
@@ -189,32 +193,67 @@ fun StatusDot(
     }
 }
 
-/** 呼吸光晕：2200ms 缓动循环，外圈半径扩张并自然消散至透明，消除周期重置时的闪烁跳变。 */
+val LocalSharedPulseProgress = compositionLocalOf<State<Float>?> { null }
+
+@Composable
+fun SharedPulseProvider(content: @Composable () -> Unit) {
+    val transition = rememberInfiniteTransition(label = "sharedPeerPulse")
+    val progress = transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "sharedPeerPulseProgress",
+    )
+    CompositionLocalProvider(LocalSharedPulseProgress provides progress) {
+        content()
+    }
+}
+
+/** 呼吸光晕：共享或本地 2200ms 缓动循环，外圈半径通过 graphicsLayer 扩张并自然消散至透明，不触发重新布局/测量。 */
 @Composable
 private fun PulsingStatusDot(
     color: Color,
     modifier: Modifier,
     size: Dp,
+    animate: Boolean = true,
 ) {
-    val transition = rememberInfiniteTransition(label = "statusDotPulse")
-    val progress by transition.animateFloat(
+    if (!animate) {
+        Box(
+            modifier
+                .size(size)
+                .background(color, CircleShape),
+        )
+        return
+    }
+    val sharedProgress = LocalSharedPulseProgress.current
+    val progressState = sharedProgress ?: rememberInfiniteTransition(label = "statusDotPulse").animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart,
+            animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
         ),
         label = "statusDotPulseProgress",
     )
-    // 外层固定为圆点尺寸：光晕溢出绘制，不影响布局，避免相邻元素被呼吸动画推动
+    // 外层固定为圆点尺寸：光晕溢出绘制，通过 graphicsLayer 变换不影响测量与布局
     Box(
         modifier.size(size),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
-                .size(size * (1f + 1.5f * progress))
-                .background(color.copy(alpha = 0.36f * (1f - progress)), CircleShape),
+                .size(size)
+                .graphicsLayer {
+                    val p = progressState.value
+                    val scale = 1f + 0.8f * p
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = 0.25f * (1f - p * 0.6f)
+                }
+                .background(color, CircleShape),
         )
         Box(Modifier.fillMaxSize().background(color, CircleShape))
     }
