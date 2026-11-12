@@ -70,3 +70,8 @@ jobs:
         with:
           files: EasyTierAndroid-*-arm64-v8a.apk
           generate_release_notes: true
+          # LGPL-3.0 §4a 要求随副本附显著声明，自动生成的 notes 不含，这里追加
+          append_body: true
+          body: |
+            > 核心引擎为 [EasyTier](https://github.com/EasyTier/EasyTier)（LGPL-3.0），以预编译
+            > `libeasytier_android_jni.so` 动态链接，对应源码见上游仓库（版本/commit 以 `jni-*` Release 标注为准）。
