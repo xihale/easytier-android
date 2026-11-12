@@ -194,4 +194,25 @@ class PortAvoidanceTest {
         )
         assertEquals(first, second)
     }
+
+    @Test
+    fun `port 65535 wraps around instead of overflowing when occupied`() {
+        // 其他实例的 SOCKS5 端口 65535 计入占用（issue #3），第二个实例请求同端口：
+        // 必须回绕到 1024+ 的空闲端口，绝不产出非法端口 65536，也不能死循环。
+        val first = NetworkConfig(
+            networkName = "a",
+            enableSocks5 = true,
+            socks5Port = 65535,
+        )
+        val final = PortAvoidance.resolve(
+            config = NetworkConfig(networkName = "b"),
+            runningConfigs = listOf(first),
+            selfName = "b",
+            socks5Enabled = true,
+            requestedSocks5Port = 65535,
+        )
+        val port = final.socks5Port
+        assertTrue("端口必须落在合法区间，实际 $port", port != null && port in 1024..65534)
+        assertEquals(1024, final.socks5Port)
+    }
 }

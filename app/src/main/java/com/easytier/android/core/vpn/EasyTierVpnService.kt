@@ -6,46 +6,50 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.VpnService
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.easytier.android.EasyTierApp
 import com.easytier.android.MainActivity
 import com.easytier.android.R
+import com.easytier.android.core.clash.ClashRouteGenerator
 import com.easytier.jni.EasyTierJNI
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 /**
  * EasyTier VPN 前台服务。
  *
  * 职责：
- * 1. 建立系统 TUN 接口（按虚拟 IP + 代理网段路由）
- * 2. 将 TUN fd 传递给 Rust 核心（setTunFd）
- * 3. 轮询 DHCP 变化（虚拟 IP / 代理网段变化时重建 TUN）
+ * 1. 按 [VpnController] 规划的 [TunSpec] 建立或热更新系统 TUN 接口
+ * 2. 将新 TUN fd 原子切换至 Rust 核心（setTunFd）后再回收旧 fd，消除切网/加路由断流空窗
+ *
+ * 注：
+ * - 已移除独立 3s JNI 轮询协程，统一由 [EasyTierEngine] 自适应轮询 + [VpnController] 差量下发驱动，
+ *   消除后台双重唤醒与重复 pbjson 反序列化。
+ * - Wi-Fi MulticastLock 已统一由 [NetworkConnectivityMonitor] 按需脉冲调度，不再常驻持锁。
  */
 class EasyTierVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
-    private var instanceName: String? = null
-    private var multicastLock: WifiManager.MulticastLock? = null
+    private var appliedSpec: TunSpec? = null
+    private val tunMutex = Mutex()
+    private var applyJob: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    private var currentIpv4: String? = null
-    private var currentProxyCidrs: List<String> = emptyList()
-    private var currentMagicDns = false
-    private var currentDnsZone: String? = null
 
     override fun onCreate() {
         super.onCreate()
+        isServiceAlive = true
         createNotificationChannel()
     }
 
@@ -53,7 +57,7 @@ class EasyTierVpnService : VpnService() {
         when (intent?.action) {
             ACTION_STOP -> {
                 // 通知栏停止：停 TUN + 停全部网络实例（服务与网络一起关）
-                startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.vpn_state_stopping)))
+                safeStartForeground(buildNotification(getString(R.string.vpn_state_stopping)))
                 stopVpn()
                 stopAllExternally()
                 stopSelf()
@@ -61,73 +65,89 @@ class EasyTierVpnService : VpnService() {
             }
             ACTION_STOP_TUN -> {
                 // 仅关 TUN 与前台服务，不动核心实例（服务/网络解耦）
-                startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.vpn_state_stopping)))
+                safeStartForeground(buildNotification(getString(R.string.vpn_state_stopping)))
                 stopVpn()
                 stopSelf()
                 return START_NOT_STICKY
             }
         }
 
-        instanceName = intent?.getStringExtra(EXTRA_INSTANCE_NAME)
+        val name = intent?.getStringExtra(EXTRA_INSTANCE_NAME)
         val ipv4 = intent?.getStringExtra(EXTRA_IPV4)
         val cidrs = intent?.getStringArrayListExtra(EXTRA_PROXY_CIDRS).orEmpty()
         val magicDns = intent?.getBooleanExtra(EXTRA_MAGIC_DNS, false) ?: false
         val dnsZone = intent?.getStringExtra(EXTRA_DNS_ZONE)
+        val mtu = intent?.getIntExtra(EXTRA_MTU, TunRoutePlanner.DEFAULT_MTU)
+            ?: TunRoutePlanner.DEFAULT_MTU
 
-        if (instanceName == null || ipv4 == null) {
-            Log.e(TAG, "缺少必要参数，停止服务")
-            // START_STICKY 重建时 intent 为 null：补一次 startForeground 满足前台服务回调义务
-            startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.vpn_state_starting)))
+        if (name == null || ipv4 == null) {
+            Log.w(TAG, "缺少必要参数或进程重建空 Intent，停止 VPN 服务")
+            safeStartForeground(buildNotification(getString(R.string.vpn_state_starting)))
             stopSelf()
             return START_NOT_STICKY
         }
 
-        // instanceName 上面已判空返回，模板里不会出现 null
-        startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.vpn_state_running, instanceName!!)))
-        acquireMulticastLock()
+        safeStartForeground(buildNotification(getString(R.string.vpn_state_running, name)))
 
-        scope.launch {
-            runCatching { setupVpn(ipv4, cidrs, magicDns, dnsZone) }
-                .onFailure { Log.e(TAG, "VPN 建立失败", it); onEstablishFailed(it) }
+        val targetSpec = TunSpec(
+            instanceName = name,
+            ipv4Cidr = ipv4,
+            routes = cidrs,
+            magicDns = magicDns,
+            dnsZone = dnsZone,
+            mtu = mtu.coerceIn(TunRoutePlanner.MIN_MTU, TunRoutePlanner.MAX_MTU),
+        )
+
+        applyJob?.cancel()
+        applyJob = scope.launch {
+            tunMutex.withLock {
+                if (vpnInterface != null && appliedSpec == targetSpec) {
+                    return@withLock
+                }
+                runCatching { establish(targetSpec) }
+                    .onFailure {
+                        Log.e(TAG, "VPN 建立失败", it)
+                        onEstablishFailed(it)
+                    }
+            }
         }
         return START_STICKY
     }
 
-    private suspend fun setupVpn(
-        ipv4Cidr: String,
-        proxyCidrs: List<String>,
-        magicDns: Boolean,
-        dnsZone: String?,
-    ) {
-        establish(ipv4Cidr, proxyCidrs, magicDns, dnsZone)
-
-        // DHCP 轮询：IP/网段变化时重建（DNS 配置不变，沿用本次启动的值）
-        while (scope.isActive && vpnInterface != null) {
-            delay(DHCP_POLL_INTERVAL_MS)
-            val (newIp, newCidrs) = queryRuntimeNetwork()
-            if (newIp != null && (newIp != currentIpv4 || newCidrs != currentProxyCidrs)) {
-                Log.i(TAG, "网络变化，重建 TUN: $currentIpv4 -> $newIp")
-                establish(newIp, newCidrs, currentMagicDns, currentDnsZone)
+    private fun safeStartForeground(notification: Notification) {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        }.onFailure { err ->
+            Log.w(TAG, "VPN startForeground 受限降级为普通状态通知: ${err.message}")
+            runCatching {
+                getSystemService(NotificationManager::class.java)
+                    ?.notify(NOTIFICATION_ID, notification)
             }
         }
     }
 
-    private fun establish(ipv4Cidr: String, proxyCidrs: List<String>, magicDns: Boolean, dnsZone: String?) {
-        vpnInterface?.close()
-
-        val (ip, prefix) = splitCidr(ipv4Cidr, 24)
+    private fun establish(spec: TunSpec) {
+        val (ip, prefix) = splitCidr(spec.ipv4Cidr, 24)
         val builder = Builder()
             .setSession("EasyTier")
             .setBlocking(false)
-            .setMtu(MTU)
+            .setMtu(spec.mtu)
             .addAddress(ip, prefix)
 
-        if (magicDns) {
+        if (spec.magicDns) {
             // Magic DNS：核心在 TUN 数据面应答发往 fake IP 的查询（不监听 53 端口），
-            // 路由 + 系统 DNS 都指向它；普通域名由核心转发上游（Android 上为 223.5.5.5 等）
+            // 路由 + 系统 DNS 都指向它；普通域名由核心转发配置的上游（DoT/DoH/UDP）
             builder.addRoute(MAGIC_DNS_FAKE_IP, 32)
             builder.addDnsServer(MAGIC_DNS_FAKE_IP)
-            dnsZone?.let { zone ->
+            spec.dnsZone?.let { zone ->
                 runCatching { builder.addSearchDomain(zone) }
                     .onFailure { Log.w(TAG, "添加 DNS 搜索域失败: ${it.message}") }
             }
@@ -148,79 +168,45 @@ class EasyTierVpnService : VpnService() {
         runCatching { builder.addDisallowedApplication(packageName) }
             .onFailure { Log.e(TAG, "无法排除自身应用出 VPN，打洞会走隧道", it) }
 
-        proxyCidrs.forEach { cidr ->
+        spec.routes.forEach { rawCidr ->
+            val normalized = ClashRouteGenerator.normalizeCidr(rawCidr) ?: rawCidr
             runCatching {
-                val (routeIp, routePrefix) = splitCidr(cidr, 24)
+                val (routeIp, routePrefix) = splitCidr(normalized, 24)
                 builder.addRoute(routeIp, routePrefix)
-            }.onFailure { Log.w(TAG, "无效路由 $cidr: ${it.message}") }
+            }.onFailure { Log.w(TAG, "无效路由 $rawCidr: ${it.message}") }
         }
 
-        val tun = builder.establish()
+        val newTun = builder.establish()
             ?: throw IllegalStateException(getString(R.string.vpn_err_establish_null))
-        vpnInterface = tun
-        currentIpv4 = ipv4Cidr
-        currentProxyCidrs = proxyCidrs
-        currentMagicDns = magicDns
-        currentDnsZone = dnsZone
 
-        val name = instanceName
-        if (name != null) {
-            val rc = EasyTierJNI.setTunFd(name, tun.fd)
-            if (rc != 0) {
-                throw IllegalStateException(
+        val rc = EasyTierJNI.setTunFd(spec.instanceName, newTun.fd)
+        if (rc != 0) {
+            runCatching { newTun.close() }
+            throw IllegalStateException(
                 getString(R.string.vpn_err_set_tun_fd, EasyTierJNI.getLastError()),
             )
-            }
         }
-        Log.i(TAG, "TUN 已建立: $ip/$prefix, 路由 ${proxyCidrs.size} 条${if (magicDns) ", Magic DNS($dnsZone)" else ""}")
+
+        // 先切新 fd 再关旧 fd：消除热更新期间的数据包黑洞与泄漏窗口
+        val oldTun = vpnInterface
+        vpnInterface = newTun
+        appliedSpec = spec
+        runCatching { oldTun?.close() }
+
+        Log.i(
+            TAG,
+            "TUN 已就绪: $ip/$prefix, MTU=${spec.mtu}, 路由 ${spec.routes.size} 条" +
+                if (spec.magicDns) ", Magic DNS(${spec.dnsZone})" else "",
+        )
     }
-
-    /** 从核心查询当前虚拟 IP 与代理网段。 */
-    private fun queryRuntimeNetwork(): Pair<String?, List<String>> = runCatching {
-        val raw = EasyTierJNI.collectNetworkInfos(8) ?: return@runCatching null to emptyList()
-        val info = parseRuntimeInfo(raw, instanceName) ?: return@runCatching null to emptyList()
-        val ip = info.myNodeInfo?.virtualIpv4?.toCidrString()
-        val cidrs = info.routes.flatMap { it.proxyCidrs }.distinct()
-        ip to cidrs
-    }.getOrDefault(null to emptyList())
-
-    private fun parseRuntimeInfo(
-        raw: String,
-        name: String?,
-    ): com.easytier.android.data.model.NetworkInstanceRunningInfo? = runCatching {
-        // 复用数据层模型解析 pbjson
-        val map = com.easytier.android.data.model.RuntimeJson.json
-            .decodeFromString<com.easytier.android.data.model.NetworkInstanceRunningInfoMap>(raw)
-        map.map[name]
-    }.getOrNull()
 
     private fun stopVpn() {
-        vpnInterface?.close()
+        applyJob?.cancel()
+        applyJob = null
+        appliedSpec = null
+        val old = vpnInterface
         vpnInterface = null
-        releaseMulticastLock()
-    }
-
-    /**
-     * Android 默认会过滤组播，UPnP SSDP 与局域网 UDP 发现需要 multicast lock。
-     * 官方插件清单带 ACCESS_WIFI_STATE；这里显式拿锁，避免打洞/直连退化成中转。
-     */
-    private fun acquireMulticastLock() {
-        if (multicastLock?.isHeld == true) return
-        val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
-        runCatching {
-            wifi.createMulticastLock("easytier").apply {
-                setReferenceCounted(false)
-                acquire()
-                multicastLock = this
-            }
-            Log.i(TAG, "已获取 WiFi multicast lock")
-        }.onFailure { Log.w(TAG, "获取 multicast lock 失败: ${it.message}") }
-    }
-
-    private fun releaseMulticastLock() {
-        val lock = multicastLock ?: return
-        multicastLock = null
-        runCatching { if (lock.isHeld) lock.release() }
+        runCatching { old?.close() }
     }
 
     override fun onRevoke() {
@@ -232,8 +218,7 @@ class EasyTierVpnService : VpnService() {
 
     /**
      * TUN 建立失败（VPN 授权被收回 / 被其他 VPN 占用等）。重置服务状态（磁贴/首页回到
-     * 未运行），停掉全部核心实例让进程尽快退场，并发一条可点击授权重试的通知
-     * （重试走 MainActivity 重新拉起勾选的网络，不依赖存活实例）。
+     * 未运行），停掉全部核心实例让进程尽快退场，并发一条可点击授权重试的通知。
      */
     private fun onEstablishFailed(cause: Throwable) {
         stopVpn()
@@ -249,8 +234,12 @@ class EasyTierVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        isServiceAlive = false
         scope.cancel()
         stopVpn()
+        runCatching {
+            getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+        }
         super.onDestroy()
     }
 
@@ -259,27 +248,33 @@ class EasyTierVpnService : VpnService() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID, getString(R.string.vpn_channel_name),
+                CHANNEL_ID,
+                getString(R.string.vpn_channel_name),
                 NotificationManager.IMPORTANCE_LOW,
-            ).apply { description = getString(R.string.vpn_channel_desc) }
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            ).apply {
+                description = getString(R.string.vpn_channel_desc)
+                setShowBadge(false)
+            }
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
     }
 
     private fun buildNotification(text: String): Notification {
         val contentIntent = PendingIntent.getActivity(
-            this, 0,
+            this,
+            0,
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val stopIntent = PendingIntent.getService(
-            this, 1,
+            this,
+            1,
             Intent(this, EasyTierVpnService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_vpn)
-            .setContentTitle("EasyTier")
+            .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setContentIntent(contentIntent)
             .addAction(0, getString(R.string.vpn_action_stop), stopIntent)
@@ -290,19 +285,21 @@ class EasyTierVpnService : VpnService() {
     /** 失败通知：点按打开应用申请授权并自动重试。无通知权限时静默放弃。 */
     private fun postFailureNotification(cause: Throwable) {
         runCatching {
-            val manager = getSystemService(NotificationManager::class.java)
+            val manager = getSystemService(NotificationManager::class.java) ?: return
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                 manager.getNotificationChannel(CHANNEL_ALERT_ID) == null
             ) {
                 manager.createNotificationChannel(
                     NotificationChannel(
-                        CHANNEL_ALERT_ID, getString(R.string.vpn_alert_channel_name),
+                        CHANNEL_ALERT_ID,
+                        getString(R.string.vpn_alert_channel_name),
                         NotificationManager.IMPORTANCE_DEFAULT,
                     ).apply { description = getString(R.string.vpn_alert_channel_desc) },
                 )
             }
             val retryIntent = PendingIntent.getActivity(
-                this, 2,
+                this,
+                2,
                 Intent(this, MainActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     .putExtra(MainActivity.EXTRA_REQUEST_VPN_AND_START, true),
@@ -335,19 +332,34 @@ class EasyTierVpnService : VpnService() {
         private const val CHANNEL_ALERT_ID = "easytier_vpn_alert"
         private const val NOTIFICATION_ID = 1
         private const val ALERT_NOTIFICATION_ID = 2
-        private const val MTU = 1380
-        private const val DHCP_POLL_INTERVAL_MS = 3000L
+
+        @Volatile
+        private var isServiceAlive: Boolean = false
 
         const val EXTRA_INSTANCE_NAME = "instance_name"
         const val EXTRA_IPV4 = "ipv4_address"
         const val EXTRA_PROXY_CIDRS = "proxy_cidrs"
         const val EXTRA_MAGIC_DNS = "magic_dns"
         const val EXTRA_DNS_ZONE = "dns_zone"
+        const val EXTRA_MTU = "mtu"
 
         /** 核心 Magic DNS 的固定 fake IP（MAGIC_DNS_FAKE_IP），查询由 TUN 数据面拦截应答 */
         private const val MAGIC_DNS_FAKE_IP = "100.100.100.101"
         const val ACTION_STOP = "com.easytier.android.STOP_VPN"
         const val ACTION_STOP_TUN = "com.easytier.android.STOP_VPN_TUN"
+
+        /** 按 [TunSpec] 启动或平滑热更新系统 TUN。 */
+        internal fun start(context: Context, spec: TunSpec) {
+            start(
+                context = context,
+                instanceName = spec.instanceName,
+                ipv4Cidr = spec.ipv4Cidr,
+                proxyCidrs = spec.routes,
+                magicDns = spec.magicDns,
+                dnsZone = spec.dnsZone,
+                mtu = spec.mtu,
+            )
+        }
 
         /** 便捷启动。 */
         fun start(
@@ -357,25 +369,34 @@ class EasyTierVpnService : VpnService() {
             proxyCidrs: List<String>,
             magicDns: Boolean = false,
             dnsZone: String? = null,
+            mtu: Int = TunRoutePlanner.DEFAULT_MTU,
         ) {
             val intent = Intent(context, EasyTierVpnService::class.java)
                 .putExtra(EXTRA_INSTANCE_NAME, instanceName)
                 .putExtra(EXTRA_IPV4, ipv4Cidr)
                 .putExtra(EXTRA_MAGIC_DNS, magicDns)
                 .putExtra(EXTRA_DNS_ZONE, dnsZone)
+                .putExtra(EXTRA_MTU, mtu)
                 .putStringArrayListExtra(EXTRA_PROXY_CIDRS, ArrayList(proxyCidrs))
-            // 磁贴点击时应用可能在后台：O+ 上普通 startService 会被后台启动限制拒绝，
-            // 前台服务职责由 onStartCommand 里的 startForeground 满足
-            ContextCompat.startForegroundService(context, intent)
+            runCatching {
+                ContextCompat.startForegroundService(context, intent)
+            }.onFailure { Log.e(TAG, "启动 EasyTierVpnService 失败: ${it.message}", it) }
         }
 
         /** 仅关闭 TUN 与前台服务，核心实例不受影响（服务/网络解耦）。 */
         fun stopTun(context: Context) {
-            // 磁贴「停止」时应用可能在后台，普通 startService 会被 O+ 后台启动限制拒绝
-            ContextCompat.startForegroundService(
-                context,
-                Intent(context, EasyTierVpnService::class.java).setAction(ACTION_STOP_TUN),
-            )
+            if (!isServiceAlive) {
+                runCatching { context.stopService(Intent(context, EasyTierVpnService::class.java)) }
+                return
+            }
+            runCatching {
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, EasyTierVpnService::class.java).setAction(ACTION_STOP_TUN),
+                )
+            }.onFailure {
+                runCatching { context.stopService(Intent(context, EasyTierVpnService::class.java)) }
+            }
         }
 
         private fun splitCidr(cidr: String, defaultPrefix: Int): Pair<String, Int> {

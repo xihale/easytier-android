@@ -14,8 +14,38 @@ import com.easytier.android.data.model.NetworkConfig
  *   避让后的监听端口也计入占用，避免自身的 SOCKS5 / VPN Portal 与自己的监听端口
  *   撞车（默认 vpnPortalListenPort 11010 与默认监听 11010 同端口）。
  * - 避让得到的新端口会加入占用集，避免同一配置内互相撞车。
+ * - 端口扫描有界且在 [MAX_PORT] 处回绕到 [WRAP_FALLBACK_PORT]：被占用端口贴近 65535 时
+ *   绝不产出 65536+ 的非法端口，也不会无限递增死循环。
  */
 internal object PortAvoidance {
+
+    private const val MAX_PORT = 65535
+    private const val WRAP_FALLBACK_PORT = 1024
+
+    /** 候选扫描上限：1024..65535 恰好 64512 个端口，扫满即全空间无空闲。 */
+    private const val MAX_CANDIDATE_CHECKS = 64512
+
+    /** 监听端口冲突步进（历史行为：+10）。 */
+    private const val LISTENER_PORT_STEP = 10
+
+    /**
+     * 从 [startPort] 起（越界回绕到 [WRAP_FALLBACK_PORT]）找第一个空闲端口。
+     * 最多尝试 [MAX_CANDIDATE_CHECKS] 个候选；全部占用则回落到起点（coerce 到合法区间）。
+     */
+    private fun nextFreePort(
+        startPort: Int,
+        reserved: Set<Int>,
+        step: Int = 1,
+        isPortFree: (Int) -> Boolean = { true },
+    ): Int {
+        val begin = startPort.coerceIn(1, MAX_PORT)
+        var candidate = begin
+        repeat(MAX_CANDIDATE_CHECKS) {
+            if (candidate !in reserved && isPortFree(candidate)) return candidate
+            candidate = if (candidate + step > MAX_PORT) WRAP_FALLBACK_PORT else candidate + step
+        }
+        return begin
+    }
 
     /** 计算启动 [config] 时实际生效的配置：必要时替换被占用的监听端口与 SOCKS5 端口。
      *  [runningConfigs] 可包含自身旧记录，函数内部按 [selfName] 排除（issue #1 的病灶所在）。 */
@@ -48,15 +78,13 @@ internal object PortAvoidance {
         listeners.forEach { it.substringAfterLast(':').toIntOrNull()?.let(usedPorts::add) }
         var socks5Port = if (socks5Enabled) requestedSocks5Port else null
         if (socks5Port != null) {
-            var candidate = socks5Port
-            while (candidate in usedPorts) candidate += 1
+            val candidate = nextFreePort(socks5Port, usedPorts)
             usedPorts.add(candidate)
             socks5Port = candidate
         }
         var vpnPortalPort = if (config.enableVpnPortal) config.vpnPortalListenPort else null
         if (vpnPortalPort != null) {
-            var candidate = vpnPortalPort
-            while (candidate in usedPorts) candidate += 1
+            val candidate = nextFreePort(vpnPortalPort, usedPorts)
             usedPorts.add(candidate)
             vpnPortalPort = candidate
         }
@@ -67,12 +95,11 @@ internal object PortAvoidance {
         )
     }
 
-    /** 监听 URL 的端口被占用时，从原端口 +10 起找一个未占用端口。 */
+    /** 监听 URL 的端口被占用时，从原端口 +10 起找一个未占用端口（越界回绕，防溢出/死循环）。 */
     private fun avoidPortConflict(url: String, usedPorts: MutableSet<Int>): String {
         val port = url.substringAfterLast(':').toIntOrNull() ?: return url
         if (port !in usedPorts) return url
-        var candidate = port
-        while (candidate in usedPorts) candidate += 10
+        val candidate = nextFreePort(port, usedPorts, step = LISTENER_PORT_STEP)
         usedPorts.add(candidate)
         return url.substringBeforeLast(':') + ":" + candidate
     }

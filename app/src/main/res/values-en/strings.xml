@@ -316,4 +316,9 @@
     <string name="vpn_err_set_tun_fd">setTunFd failed: %1$s</string>
     <string name="engine_not_running">Instance not running</string>
     <string name="error_no_enabled_networks">No networks selected. Select the networks to join the service first.</string>
+    <string name="fg_channel_name">EasyTier Background Service</string>
+    <string name="fg_channel_desc">EasyTier core engine and SOCKS5 proxy keep-alive status</string>
+    <string name="fg_state_running_default">Core engine running</string>
+    <string name="fg_state_no_tun">Running (no-TUN mode)</string>
+    <string name="fg_state_no_tun_networks">Running (no-TUN) · %1$s</string>
 </resources>

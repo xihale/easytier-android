@@ -33,8 +33,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -55,7 +55,6 @@ import com.easytier.android.ui.theme.EasyTierTheme
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 class MainActivity : ComponentActivity() {
 
@@ -82,10 +81,10 @@ class MainActivity : ComponentActivity() {
             }
         }
         val container = (application as EasyTierApp).container
-        // 同步读一次初始设置（DataStore 文件极小）：collectAsState 用真实初值，避免首帧闪默认主题
-        val initialSettings = runBlocking { container.settingsRepository.settings.first() }
+        // 初始设置快照（内存快照或轻量缓存）：避免主线程阻塞 DataStore I/O，首帧不闪主题
+        val initialSettings = container.settingsRepository.initialSettings()
         setContent {
-            val settings by container.settingsRepository.settings.collectAsState(initial = initialSettings)
+            val settings by container.settingsRepository.settings.collectAsStateWithLifecycle(initialValue = initialSettings)
             val dark = when (settings.themeMode) {
                 "light" -> false
                 "dark" -> true

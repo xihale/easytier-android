@@ -44,8 +44,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import com.easytier.android.R
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -178,7 +178,7 @@ private val UPDATE_INTERVAL_OPTIONS = listOf(
 @Composable
 fun SettingsScreen(onOpenDns: () -> Unit = {}, onOpenClashHelp: () -> Unit = {}) {
     val vm: SettingsViewModel = viewModel()
-    val settings by vm.settings.collectAsState()
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -191,7 +191,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}, onOpenClashHelp: () -> Unit = {})
     // 发现新版本弹窗的内容（一次性事件驱动，非页面间常驻状态）
     var updateDialogInfo by remember { mutableStateOf<ReleaseInfo?>(null) }
     // 检查按钮的即时状态（用于显示检查中菊叶）
-    val checkState by vm.updateCheckResult.collectAsState()
+    val checkState by vm.updateCheckResult.collectAsStateWithLifecycle()
 
     // 关闭 VPN（改由仅引擎 / SOCKS5 模式提供代理）前的后台权限检查：
     // 没有系统性 VPN 保护后，进程完全靠前台服务常驻，未加白名单很容易被回收

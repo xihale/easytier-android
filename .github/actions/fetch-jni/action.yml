@@ -36,6 +36,19 @@ runs:
           mkdir -p "app/src/main/jniLibs/$abi"
           curl -sfL \
             -o "app/src/main/jniLibs/$abi/libeasytier_android_jni.so" "$url"
+          # 附带 .sha256 时校验下载产物（旧的 jni-* Release 可能没有校验和，缺失则跳过）
+          if curl -fsSL -o /tmp/jni-checksum.txt "${url}.sha256" 2>/dev/null; then
+            expected=$(awk '{print $1}' /tmp/jni-checksum.txt)
+            actual=$(sha256sum "app/src/main/jniLibs/$abi/libeasytier_android_jni.so" | awk '{print $1}')
+            if [ "$expected" != "$actual" ]; then
+              echo "::error::$name sha256 校验失败：期望 $expected，实际 $actual"
+              exit 1
+            fi
+            echo "sha256 校验通过: $name ($actual)"
+          else
+            echo "警告: $TAG 缺少 $name.sha256，跳过校验"
+          fi
+          rm -f /tmp/jni-checksum.txt
           echo "已下载 $name -> app/src/main/jniLibs/$abi/"
         done
         ls -la app/src/main/jniLibs/*/

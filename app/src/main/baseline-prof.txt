@@ -5,34 +5,25 @@
 # 由 profileinstaller 在设备上安装（Android 9+ 运行时安装，7~8.x 安装期编译）。
 #
 # 规则语法：
-#   L<class>;->method(**)**  类加载
-#   HSPL<...>                方法 Hot/Startup/PostStartup 编译
+#   HSPL<...>->**(**)**  方法 Hot/Startup/PostStartup 编译
+#   L<class>;            类加载
+# 规则覆盖收窄为启动与稳定态热路径：全量 ** 通配会把未用到的图标、对话框等
+# 一并编进 OAT，白白膨胀 compiled-classes 与安装体积。
 # 更精细的规则可用 :baselineprofile 模块在真机上自动生成后替换本文件。
 
-# ---- Compose（启动即用：渲染、重组、动画）----
+# ---- Compose 运行时与渲染热路径（重组/测量/布局/绘制）----
 HSPLandroidx/compose/runtime/**->**(**)**
 Landroidx/compose/runtime/**;
-HSPLandroidx/compose/ui/**->**(**)**
-Landroidx/compose/ui/**;
-HSPLandroidx/compose/foundation/**->**(**)**
-Landroidx/compose/foundation/**;
-HSPLandroidx/compose/animation/**->**(**)**
-Landroidx/compose/animation/**;
-HSPLandroidx/compose/material3/**->**(**)**
-Landroidx/compose/material3/**;
-Landroidx/compose/material/icons/**;
+HSPLandroidx/compose/ui/node/**->**(**)**
+Landroidx/compose/ui/node/**;
+HSPLandroidx/compose/ui/layout/**->**(**)**
+Landroidx/compose/ui/layout/**;
+HSPLandroidx/compose/ui/graphics/**->**(**)**
+Landroidx/compose/ui/graphics/**;
 
-# ---- 框架入口 / 导航 / 生命周期 ----
-HSPLandroidx/activity/**->**(**)**
-Landroidx/activity/**;
-HSPLandroidx/navigation/**->**(**)**
-Landroidx/navigation/**;
+# ---- 框架生命周期（导航、DataStore 按需触发，不再全量）----
 HSPLandroidx/lifecycle/**->**(**)**
 Landroidx/lifecycle/**;
-HSPLandroidx/core/**->**(**)**
-Landroidx/core/**;
-HSPLandroidx/datastore/**->**(**)**
-Landroidx/datastore/**;
 
 # ---- 协程与序列化（引擎状态轮询、配置存取热路径）----
 HSPLkotlinx/coroutines/**->**(**)**
@@ -40,6 +31,29 @@ Lkotlinx/coroutines/**;
 HSPLkotlinx/serialization/**->**(**)**
 Lkotlinx/serialization/**;
 
-# ---- 应用自身（MainActivity、UI、JNI 封装、数据层）----
-HSPLcom/easytier/android/**->**(**)**
-Lcom/easytier/android/**;
+# ---- 应用自身：入口与数据/引擎/VPN 热路径 ----
+HSPLcom/easytier/android/EasyTierApp**->**(**)**
+Lcom/easytier/android/EasyTierApp;
+HSPLcom/easytier/android/MainActivity**->**(**)**
+Lcom/easytier/android/MainActivity;
+Lcom/easytier/android/LauncherIconRefresher;
+HSPLcom/easytier/android/core/engine/**->**(**)**
+Lcom/easytier/android/core/engine/**;
+HSPLcom/easytier/android/core/vpn/**->**(**)**
+Lcom/easytier/android/core/vpn/**;
+HSPLcom/easytier/android/data/model/**->**(**)**
+Lcom/easytier/android/data/model/**;
+HSPLcom/easytier/android/data/store/**->**(**)**
+Lcom/easytier/android/data/store/**;
+
+# ---- 应用 UI：导航、主题、组件与两大主屏（Settings 屏冷启动非热路径，按需 JIT）----
+HSPLcom/easytier/android/ui/nav/**->**(**)**
+Lcom/easytier/android/ui/nav/**;
+HSPLcom/easytier/android/ui/theme/**->**(**)**
+Lcom/easytier/android/ui/theme/**;
+HSPLcom/easytier/android/ui/components/**->**(**)**
+Lcom/easytier/android/ui/components/**;
+HSPLcom/easytier/android/ui/screens/networks/**->**(**)**
+Lcom/easytier/android/ui/screens/networks/**;
+HSPLcom/easytier/android/ui/screens/status/**->**(**)**
+Lcom/easytier/android/ui/screens/status/**;

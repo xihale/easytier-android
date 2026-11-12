@@ -22,22 +22,32 @@ class LauncherIconRefresher : BroadcastReceiver() {
         private const val PREFS = "launcher_icon_sync"
         private const val KEY_LAST_NIGHT = "last_synced_night"
 
+        @Volatile
+        private var cachedNightMode: Int? = null
+
         /**
          * 系统深浅色与上次同步时不一致时翻转一次组件状态，促使桌面重渲染图标。
          * 进程存活时由 onConfigurationChanged 触发（VPN 常驻即实时跟随）；
          * 进程不在时的切换由下次进程启动（打开应用/服务拉起/开机）兜底同步。
          */
+        @Synchronized
         fun syncIfNeeded(context: Context) {
             val appContext = context.applicationContext
-            val night = (appContext.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-                Configuration.UI_MODE_NIGHT_YES
+            val currentNightMode = appContext.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+            if (cachedNightMode == currentNightMode) return
+
+            val night = currentNightMode == Configuration.UI_MODE_NIGHT_YES
             val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             if (!prefs.contains(KEY_LAST_NIGHT)) {
                 // 首次只记录当前模式；此时图标刚由桌面按当前配置渲染，无需翻转
                 prefs.edit().putBoolean(KEY_LAST_NIGHT, night).apply()
+                cachedNightMode = currentNightMode
                 return
             }
-            if (prefs.getBoolean(KEY_LAST_NIGHT, night) == night) return
+            if (prefs.getBoolean(KEY_LAST_NIGHT, night) == night) {
+                cachedNightMode = currentNightMode
+                return
+            }
             val pm = appContext.packageManager
             val comp = ComponentName(appContext, LauncherIconRefresher::class.java)
             val enable = pm.getComponentEnabledSetting(comp) !=
@@ -49,6 +59,7 @@ class LauncherIconRefresher : BroadcastReceiver() {
                 PackageManager.DONT_KILL_APP,
             )
             prefs.edit().putBoolean(KEY_LAST_NIGHT, night).apply()
+            cachedNightMode = currentNightMode
         }
     }
 }

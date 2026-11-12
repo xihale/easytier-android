@@ -47,8 +47,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -142,9 +142,9 @@ fun NetworksScreen(
     onOpenStatus: () -> Unit,
 ) {
     val vm: NetworksViewModel = viewModel { NetworksViewModel(container) }
-    val networks by vm.networks.collectAsState()
-    val states by vm.states.collectAsState()
-    val serviceRunning by vm.serviceRunning.collectAsState()
+    val networks by vm.networks.collectAsStateWithLifecycle()
+    val states by vm.states.collectAsStateWithLifecycle()
+    val serviceRunning by vm.serviceRunning.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -165,7 +165,7 @@ fun NetworksScreen(
     // VPN 关闭（仅引擎模式）时无需系统 VPN 权限
     val enableVpn by remember(container) {
         container.settingsRepository.settings.map { it.enableVpn }
-    }.collectAsState(initial = true)
+    }.collectAsStateWithLifecycle(initialValue = true)
 
     // 开启服务（引擎）前先确保 VPN 已授权；授权通过后再真正启动
     val startServiceWithPermission = rememberWithVpnPermission(enabled = enableVpn) {
@@ -173,19 +173,31 @@ fun NetworksScreen(
     }
 
     // ---- 服务级聚合状态 ----
-    val activeCount = states.values.count { it is InstanceState.Running || it is InstanceState.Starting }
-    val enabledCount = networks.count { it.enabled }
-    val runningInfos = networks.mapNotNull { n ->
-        (states[n.config.networkName] as? InstanceState.Running)?.let { n to it.info }
+    val activeCount = remember(states) {
+        states.values.count { it is InstanceState.Running || it is InstanceState.Starting }
     }
-    val rxTotal = runningInfos.sumOf { (_, info) ->
-        info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.rxBytesLong ?: 0L } }
+    val enabledCount = remember(networks) {
+        networks.count { it.enabled }
     }
-    val txTotal = runningInfos.sumOf { (_, info) ->
-        info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.txBytesLong ?: 0L } }
+    val runningInfos = remember(states, networks) {
+        networks.mapNotNull { n ->
+            (states[n.config.networkName] as? InstanceState.Running)?.let { n to it.info }
+        }
     }
-    val nodeCount = runningInfos.flatMap { (_, info) -> info.peers.map { p -> p.peerId } }.distinct().size +
-        (if (runningInfos.isNotEmpty()) 1 else 0) // 含本机节点，对齐官方客户端口径
+    val rxTotal = remember(runningInfos) {
+        runningInfos.sumOf { (_, info) ->
+            info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.rxBytesLong ?: 0L } }
+        }
+    }
+    val txTotal = remember(runningInfos) {
+        runningInfos.sumOf { (_, info) ->
+            info.peers.sumOf { p -> p.conns.sumOf { c -> c.stats?.txBytesLong ?: 0L } }
+        }
+    }
+    val nodeCount = remember(runningInfos) {
+        runningInfos.flatMap { (_, info) -> info.peers.map { p -> p.peerId } }.distinct().size +
+            (if (runningInfos.isNotEmpty()) 1 else 0) // 含本机节点，对齐官方客户端口径
+    }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(

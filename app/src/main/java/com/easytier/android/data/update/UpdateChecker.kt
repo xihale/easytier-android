@@ -2,6 +2,7 @@ package com.easytier.android.data.update
 
 import com.easytier.android.BuildConfig
 import com.easytier.android.data.store.AppSettings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -74,7 +75,12 @@ class UpdateChecker(
                         UpdateCheckResult.UpToDate
                     }
                 } ?: UpdateCheckResult.Error
-        } catch (e: IOException) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // 网络/解析/安全类异常一律降级为检查失败：
+            // captive portal 返回的 HTML、GitHub 返回的畸形 JSON、SecurityException 等
+            // 都不能让冷启动或手动检查崩溃。
             UpdateCheckResult.Error
         }
     }
@@ -83,14 +89,22 @@ class UpdateChecker(
     private fun currentVersion(): String =
         BuildConfig.VERSION_NAME.removePrefix("v").removePrefix("V")
 
-    private fun fetchLatestReleaseJson(): String =
-        (URL("https://api.github.com/repos/$REPO/releases/latest").openConnection() as HttpURLConnection).let { conn ->
+    private suspend fun fetchLatestReleaseJson(): String = withContext(Dispatchers.IO) {
+        var conn: HttpURLConnection? = null
+        try {
+            conn = URL("https://api.github.com/repos/$REPO/releases/latest")
+                .openConnection() as HttpURLConnection
             conn.connectTimeout = 10_000
             conn.readTimeout = 15_000
             conn.setRequestProperty("Accept", "application/vnd.github+json")
             conn.setRequestProperty("User-Agent", "easytier-android")
+            // 非 2xx 时 errorStream 里的内容不是 release JSON，读 inputStream 只会再抛
+            if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
             conn.inputStream.use { it.readBytes().decodeToString() }
+        } finally {
+            conn?.disconnect()
         }
+    }
 
     /** 自动检查频率选项键值。 */
     object Interval {

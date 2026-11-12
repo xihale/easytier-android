@@ -3,14 +3,19 @@ package com.easytier.android.data.store
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.easytier.android.data.update.ReleaseInfo
 import com.easytier.android.util.DnsServers
+import java.io.IOException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 
 private val Context.settingsDataStore by preferencesDataStore(name = "settings")
 
@@ -37,6 +42,12 @@ data class AppSettings(
  */
 class SettingsRepository(private val context: Context) {
 
+    private val bootPrefs = context.applicationContext
+        .getSharedPreferences("settings_boot_cache", Context.MODE_PRIVATE)
+
+    @Volatile
+    private var latestSnapshot: AppSettings? = null
+
     private object Keys {
         val THEME = stringPreferencesKey("theme_mode")
         val ENABLE_VPN = booleanPreferencesKey("enable_vpn")
@@ -53,33 +64,55 @@ class SettingsRepository(private val context: Context) {
         val PENDING_NOTES = stringPreferencesKey("pending_update_notes")
     }
 
-    val settings: Flow<AppSettings> = context.settingsDataStore.data.map { p ->
-        AppSettings(
-            themeMode = p[Keys.THEME] ?: "system",
-            enableVpn = p[Keys.ENABLE_VPN] ?: true,
-            autoStartOnBoot = p[Keys.AUTO_START] ?: false,
-            enableSocks5 = p[Keys.SOCKS5_ENABLED] ?: false,
-            socks5Port = p[Keys.SOCKS5_PORT] ?: 1080,
-            // 键缺失 = 用默认（阿里 DoT）；键存在但为空串 = 用户显式清空，用核心内置回退
-            dnsServers = p[Keys.DNS_SERVERS].let { raw ->
-                when (raw) {
-                    null -> listOf(DnsServers.DEFAULT_SERVER)
-                    else -> raw.split('\n').filter { it.isNotBlank() }
-                }
-            },
-            updateCheckInterval = p[Keys.UPDATE_INTERVAL] ?: "off",
-            lastUpdateCheckAt = p[Keys.LAST_UPDATE_CHECK] ?: 0L,
-            pendingUpdateVersion = p[Keys.PENDING_VERSION] ?: "",
-            pendingUpdateUrl = p[Keys.PENDING_URL] ?: "",
-            pendingUpdateNotes = p[Keys.PENDING_NOTES] ?: "",
+    val settings: Flow<AppSettings> = context.settingsDataStore.data
+        .catch { e ->
+            if (e is IOException) emit(emptyPreferences()) else throw e
+        }
+        .map { p ->
+            AppSettings(
+                themeMode = p[Keys.THEME] ?: "system",
+                enableVpn = p[Keys.ENABLE_VPN] ?: true,
+                autoStartOnBoot = p[Keys.AUTO_START] ?: false,
+                enableSocks5 = p[Keys.SOCKS5_ENABLED] ?: false,
+                socks5Port = p[Keys.SOCKS5_PORT] ?: 1080,
+                // 键缺失 = 用默认（阿里 DoT）；键存在但为空串 = 用户显式清空，用核心内置回退
+                dnsServers = p[Keys.DNS_SERVERS].let { raw ->
+                    when (raw) {
+                        null -> listOf(DnsServers.DEFAULT_SERVER)
+                        else -> raw.split('\n').filter { it.isNotBlank() }
+                    }
+                },
+                updateCheckInterval = p[Keys.UPDATE_INTERVAL] ?: "off",
+                lastUpdateCheckAt = p[Keys.LAST_UPDATE_CHECK] ?: 0L,
+                pendingUpdateVersion = p[Keys.PENDING_VERSION] ?: "",
+                pendingUpdateUrl = p[Keys.PENDING_URL] ?: "",
+                pendingUpdateNotes = p[Keys.PENDING_NOTES] ?: "",
+            )
+        }
+        .distinctUntilChanged()
+        .onEach { snapshot ->
+            latestSnapshot = snapshot
+            if (bootPrefs.getString("theme_mode", "system") != snapshot.themeMode) {
+                bootPrefs.edit().putString("theme_mode", snapshot.themeMode).apply()
+            }
+        }
+
+    /**
+     * 非阻塞获取首帧初始设置：优先内存最新快照，其次轻量缓存的主题模式，
+     * 避免 MainActivity.onCreate 主线程 runBlocking 阻塞等待 DataStore I/O。
+     */
+    fun initialSettings(): AppSettings =
+        latestSnapshot ?: AppSettings(
+            themeMode = bootPrefs.getString("theme_mode", "system") ?: "system",
         )
-    }
 
     suspend fun setVpnEnabled(enabled: Boolean) =
         context.settingsDataStore.edit { it[Keys.ENABLE_VPN] = enabled }
 
-    suspend fun setThemeMode(mode: String) =
+    suspend fun setThemeMode(mode: String) {
+        bootPrefs.edit().putString("theme_mode", mode).apply()
         context.settingsDataStore.edit { it[Keys.THEME] = mode }
+    }
 
     suspend fun setAutoStart(enabled: Boolean) =
         context.settingsDataStore.edit { it[Keys.AUTO_START] = enabled }

@@ -8,7 +8,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -24,12 +23,12 @@ import com.easytier.android.R
  * 职责：
  * 1. 提供常驻前台通知，提升进程优先级为 FOREGROUND_SERVICE (oom_adj <= 100)，
  *    防止系统（如 ColorOS、MIUI、HyperOS 等）将无 TUN 的后台进程冻结或剥夺网络能力。
- * 2. 持有 WiFi MulticastLock，保证局域网 UDP 发现与 UPnP 在无 TUN 模式下正常工作。
- * 3. 提供通知栏快捷「停止」操作。
+ * 2. 提供通知栏快捷「停止」操作。
+ *
+ * 注：Wi-Fi MulticastLock 已收口至 [NetworkConnectivityMonitor] 按需脉冲持锁，
+ * 不再在此处无期限常驻持有，避免息屏后阻碍 Wi-Fi 芯片进入 802.11 省电休眠。
  */
 class EasyTierForegroundService : Service() {
-
-    private var multicastLock: WifiManager.MulticastLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -42,47 +41,55 @@ class EasyTierForegroundService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 Log.i(TAG, "收到通知栏停止指令")
-                startForeground(NOTIFICATION_ID, buildNotification("正在停止"))
+                safeStartForeground(buildNotification(getString(R.string.vpn_state_stopping)))
                 stopAllExternally()
                 stopSelf()
                 return START_NOT_STICKY
             }
         }
 
-        val text = intent?.getStringExtra(EXTRA_TEXT) ?: "网络核心运行中"
-        val notification = buildNotification(text)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        // START_STICKY 进程被回收后系统以 null intent 拉起时：核对控制器真实状态，
+        // 若引擎并未运行则立即退场，杜绝“僵尸前台通知”空转耗电。
+        if (intent == null) {
+            val active = runCatching {
+                EasyTierApp.get().container.vpnController.serviceRunning.value
+            }.getOrDefault(false)
+            if (!active) {
+                safeStartForeground(buildNotification(getString(R.string.vpn_state_stopping)))
+                stopSelf()
+                return START_NOT_STICKY
+            }
         }
 
-        acquireMulticastLock()
+        val text = intent?.getStringExtra(EXTRA_TEXT)
+            ?: getString(R.string.fg_state_running_default)
+        safeStartForeground(buildNotification(text))
         return START_STICKY
     }
 
-    private fun acquireMulticastLock() {
-        if (multicastLock?.isHeld == true) return
-        val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
+    /**
+     * 安全切入前台：兼容 Android 14+ specialUse 类型声明，并兜底捕获 Android 15/16
+     * 从开机广播或受限后台启动时可能抛出的 ForegroundServiceStartNotAllowedException，
+     * 降级为普通通知保活而不触发主线程崩溃。
+     */
+    private fun safeStartForeground(notification: Notification) {
         runCatching {
-            wifi.createMulticastLock("easytier_fg").apply {
-                setReferenceCounted(false)
-                acquire()
-                multicastLock = this
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
             }
-            Log.i(TAG, "已获取 WiFi multicast lock")
-        }.onFailure { Log.w(TAG, "获取 multicast lock 失败: ${it.message}") }
-    }
-
-    private fun releaseMulticastLock() {
-        val lock = multicastLock ?: return
-        multicastLock = null
-        runCatching { if (lock.isHeld) lock.release() }
+        }.onFailure { err ->
+            Log.w(TAG, "startForeground 受限降级为普通状态通知: ${err.message}")
+            runCatching {
+                getSystemService(NotificationManager::class.java)
+                    ?.notify(NOTIFICATION_ID, notification)
+            }
+        }
     }
 
     private fun stopAllExternally() {
@@ -91,7 +98,9 @@ class EasyTierForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        releaseMulticastLock()
+        runCatching {
+            getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+        }
         super.onDestroy()
     }
 
@@ -99,10 +108,10 @@ class EasyTierForegroundService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "EasyTier 后台服务",
+                getString(R.string.fg_channel_name),
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "EasyTier 网络核心与 SOCKS5 代理常驻状态"
+                description = getString(R.string.fg_channel_desc)
                 setShowBadge(false)
             }
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
@@ -124,10 +133,10 @@ class EasyTierForegroundService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_vpn)
-            .setContentTitle("EasyTier")
+            .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setContentIntent(contentIntent)
-            .addAction(0, "停止", stopIntent)
+            .addAction(0, getString(R.string.vpn_action_stop), stopIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
@@ -140,11 +149,13 @@ class EasyTierForegroundService : Service() {
         const val ACTION_STOP = "com.easytier.android.STOP_FOREGROUND_SERVICE"
         private const val EXTRA_TEXT = "extra_text"
 
-        fun start(context: Context, text: String = "网络核心运行中") {
+        fun start(context: Context, text: String) {
             val intent = Intent(context, EasyTierForegroundService::class.java).apply {
                 putExtra(EXTRA_TEXT, text)
             }
-            ContextCompat.startForegroundService(context, intent)
+            runCatching {
+                ContextCompat.startForegroundService(context, intent)
+            }.onFailure { Log.w(TAG, "启动前台保活服务受限: ${it.message}") }
         }
 
         fun stop(context: Context) {

@@ -317,4 +317,9 @@
     <string name="vpn_err_set_tun_fd">setTunFd 失败：%1$s</string>
     <string name="engine_not_running">实例未在运行</string>
     <string name="error_no_enabled_networks">没有勾选的网络，请先勾选要加入服务的网络</string>
+    <string name="fg_channel_name">EasyTier 后台服务</string>
+    <string name="fg_channel_desc">EasyTier 网络核心与 SOCKS5 代理常驻状态</string>
+    <string name="fg_state_running_default">网络核心运行中</string>
+    <string name="fg_state_no_tun">运行中 (无 TUN 模式)</string>
+    <string name="fg_state_no_tun_networks">运行中 (无 TUN) · %1$s</string>
 </resources>

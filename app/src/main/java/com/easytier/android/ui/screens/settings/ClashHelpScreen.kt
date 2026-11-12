@@ -77,9 +77,13 @@ import com.easytier.android.ui.components.SectionHeader
 import com.easytier.android.ui.components.SettingRow
 import com.easytier.android.ui.icons.AppIcons
 import com.easytier.android.ui.theme.LocalStatusColors
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.easytier.android.util.BackgroundPermission
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 // 终端风格深色代码面板色板（与 TomlIoDialogs 保持一致）
@@ -91,6 +95,16 @@ private val CodeLine = Color(0xFF323748)
 private val CodeIndigo = Color(0xFFB7C3FF)
 private val CodeEmerald = Color(0xFF80D9C7)
 private val CodeAmber = Color(0xFFFBBF24)
+
+private data class ClashInputs(
+    val socks5Enabled: Boolean,
+    val socks5Port: Int,
+    val cidrs: List<String>,
+    val zones: List<String>,
+    val hasRunningInstance: Boolean,
+    val savedConfigsSummary: String = "",
+    val directRules: String = "",
+)
 
 /**
  * Clash 对接页：
@@ -121,27 +135,42 @@ fun ClashHelpScreen(onBack: () -> Unit) {
     var socks5Enabled by remember { mutableStateOf(true) }
     var detectedRoutes by remember { mutableStateOf(false) }
 
-    // 片段随配置实时生成：SOCKS5 设置、运行实例、已保存网络任一变化都重新计算，
-    // 规则只来自真实网段 / DNS 后缀，检测不到时不虚构 IP（由 UI 展示空态提示）。
-    LaunchedEffect(Unit) {
+    // 片段随配置按需生成：进入 STARTED 后才监听，提取路由/DNS 特征并 distinctUntilChanged，
+    // 避免 2 秒一次的流量字节计数器跳动触发高开销的 YAML 语法树与字符串重复生成。
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
         val container = EasyTierApp.get().container
-        combine(
-            container.settingsRepository.settings,
-            container.engine.states,
-            container.networksRepository.networks,
-        ) { settings, states, networks -> Triple(settings, states, networks) }
-            .collect { (settings, states, networks) ->
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            combine(
+                container.settingsRepository.settings,
+                container.engine.states,
+                container.networksRepository.networks,
+            ) { settings, states, networks ->
                 val running = states.values
                     .mapNotNull { it as? InstanceState.Running }
                     .map { it.info }
                 val saved = networks.map { it.config }
                 val cidrs = ClashRouteGenerator.collectCidrs(running, saved)
                 val zones = ClashRouteGenerator.collectDnsZones(saved)
-                socks5Enabled = settings.enableSocks5
-                detectedRoutes = cidrs.isNotEmpty() || zones.isNotEmpty()
-                snippet = ClashRouteGenerator.generate(settings.socks5Port, cidrs, zones)
-                directRules = buildDirectRules(saved)
+                val direct = buildDirectRules(saved)
+                ClashInputs(
+                    socks5Enabled = settings.enableSocks5,
+                    socks5Port = settings.socks5Port,
+                    cidrs = cidrs,
+                    zones = zones,
+                    hasRunningInstance = running.isNotEmpty(),
+                    savedConfigsSummary = direct,
+                    directRules = direct,
+                )
             }
+                .distinctUntilChanged()
+                .collect { inputs ->
+                    socks5Enabled = inputs.socks5Enabled
+                    detectedRoutes = inputs.cidrs.isNotEmpty() || inputs.zones.isNotEmpty()
+                    snippet = ClashRouteGenerator.generate(inputs.socks5Port, inputs.cidrs, inputs.zones)
+                    directRules = inputs.directRules
+                }
+        }
     }
 
     fun copy(text: String, message: String) {
