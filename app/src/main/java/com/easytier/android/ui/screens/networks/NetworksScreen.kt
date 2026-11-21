@@ -53,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -195,8 +196,17 @@ fun NetworksScreen(
         }
     }
     val nodeCount = remember(runningInfos) {
-        runningInfos.flatMap { (_, info) -> info.peers.map { p -> p.peerId } }.distinct().size +
-            (if (runningInfos.isNotEmpty()) 1 else 0) // 含本机节点，对齐官方客户端口径
+        if (runningInfos.isEmpty()) {
+            0
+        } else {
+            val seen = HashSet<Long>()
+            for ((_, info) in runningInfos) {
+                for (peer in info.peers) {
+                    seen.add(peer.peerId)
+                }
+            }
+            seen.size + 1 // 含本机节点，对齐官方客户端口径
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -240,7 +250,7 @@ fun NetworksScreen(
                 )
             }
 
-            item {
+            item(key = "header") {
                 SectionHeader(stringResource(R.string.networks_mine)) {
                     TextButton(onClick = {
                         showImportDialog = true
@@ -387,12 +397,14 @@ private fun NetworkCard(
         label = "networkCardSubtitleColor",
     )
 
+    val currentOnEdit by rememberUpdatedState(onEdit)
+    val currentOnDelete by rememberUpdatedState(onDelete)
     // 确认阈值即触发动作；返回 false 表示不停留在 dismissed，松手自动回弹（带动画/支持 fling）
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { v ->
             when (v) {
-                SwipeToDismissBoxValue.StartToEnd -> { onEdit(); false }
-                SwipeToDismissBoxValue.EndToStart -> { onDelete(); false }
+                SwipeToDismissBoxValue.StartToEnd -> { currentOnEdit(); false }
+                SwipeToDismissBoxValue.EndToStart -> { currentOnDelete(); false }
                 else -> false
             }
         },

@@ -32,7 +32,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
@@ -92,7 +92,7 @@ class MainActivity : ComponentActivity() {
             }
             // onCreate 里的 enableEdgeToEdge 只按系统深浅色定图标色；
             // 应用内切主题时需按已解析的 dark 重设，否则浅色主题+系统深色会白图标叠浅底
-            SideEffect {
+            LaunchedEffect(dark) {
                 enableEdgeToEdge(
                     statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark },
                     navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark },
@@ -133,20 +133,19 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private val TOP_LEVEL_ROUTES = setOf("networks", "status", "settings")
+
 @Composable
 private fun EasyTierAppNavHost(container: AppContainer) {
     val navController: NavHostController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
 
-    // 顶层目的地（带底部导航）
-    val topLevelRoutes = setOf("networks", "status", "settings")
-
     Scaffold(
         bottomBar = {
             // 进出编辑页时底栏滑入/滑出而非瞬间消失，避免内容区跳变带来的顿挫感
             AnimatedVisibility(
-                visible = currentRoute in topLevelRoutes,
+                visible = currentRoute in TOP_LEVEL_ROUTES,
                 enter = fadeIn(tween(220, easing = FastOutSlowInEasing)) +
                     slideInVertically(tween(220, easing = FastOutSlowInEasing)) { it / 2 },
                 exit = fadeOut(tween(160, easing = FastOutSlowInEasing)) +
@@ -185,7 +184,7 @@ private fun EasyTierAppNavHost(container: AppContainer) {
             modifier = Modifier.padding(padding).consumeWindowInsets(padding),
             // 顶层底栏切页保持轻量短淡入淡出；进出子页面（编辑页/DNS/Clash 帮助）采用轻微 Shared-Axis X 横向位移
             enterTransition = {
-                val toSubPage = targetState.destination.route !in topLevelRoutes
+                val toSubPage = targetState.destination.route !in TOP_LEVEL_ROUTES
                 if (toSubPage) {
                     fadeIn(tween(220, easing = FastOutSlowInEasing)) +
                         slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) { it / 8 }
@@ -194,7 +193,7 @@ private fun EasyTierAppNavHost(container: AppContainer) {
                 }
             },
             exitTransition = {
-                val toSubPage = targetState.destination.route !in topLevelRoutes
+                val toSubPage = targetState.destination.route !in TOP_LEVEL_ROUTES
                 if (toSubPage) {
                     fadeOut(tween(140)) +
                         slideOutHorizontally(tween(240, easing = FastOutSlowInEasing)) { -it / 16 }
@@ -203,7 +202,7 @@ private fun EasyTierAppNavHost(container: AppContainer) {
                 }
             },
             popEnterTransition = {
-                val fromSubPage = initialState.destination.route !in topLevelRoutes
+                val fromSubPage = initialState.destination.route !in TOP_LEVEL_ROUTES
                 if (fromSubPage) {
                     fadeIn(tween(200, easing = FastOutSlowInEasing)) +
                         slideInHorizontally(tween(220, easing = FastOutSlowInEasing)) { -it / 16 }
@@ -212,7 +211,7 @@ private fun EasyTierAppNavHost(container: AppContainer) {
                 }
             },
             popExitTransition = {
-                val fromSubPage = initialState.destination.route !in topLevelRoutes
+                val fromSubPage = initialState.destination.route !in TOP_LEVEL_ROUTES
                 if (fromSubPage) {
                     fadeOut(tween(150)) +
                         slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { it / 8 }

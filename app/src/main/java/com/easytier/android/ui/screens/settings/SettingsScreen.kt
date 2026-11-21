@@ -92,11 +92,11 @@ class SettingsViewModel : ViewModel() {
     private val repo: SettingsRepository =
         EasyTierApp.get().container.settingsRepository
 
-    val settings: StateFlow<AppSettings?> =
+    val settings: StateFlow<AppSettings> =
         repo.settings.stateIn(
             viewModelScope,
             SharingStarted.Eagerly,
-            null,
+            repo.initialSettings(),
         )
 
     fun setTheme(mode: String) = launchIO { repo.setThemeMode(mode) }
@@ -205,13 +205,7 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}, onOpenClashHelp: () -> Unit = {})
         }
     }
 
-    val s = settings ?: run {
-        // 首帧设置未加载时给加载指示，避免整页空白
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
-        return
-    }
+    val s = settings
 
     Box(Modifier.fillMaxSize()) {
         Column(

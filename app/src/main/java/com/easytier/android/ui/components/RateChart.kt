@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -47,19 +48,21 @@ fun RateChart(
     }
 
     // 两条曲线共用一个量程（取各自最大值的较大者），平滑过渡量程跳变
-    val rxOffset = (rxHistory.size - maxPoints).coerceAtLeast(0)
-    var rxMax = 0L
-    for (i in rxOffset until rxHistory.size) {
-        val v = rxHistory[i]
-        if (v > rxMax) rxMax = v
+    val rawMax = remember(rxHistory, txHistory, maxPoints) {
+        val rxOffset = (rxHistory.size - maxPoints).coerceAtLeast(0)
+        var rxMax = 0L
+        for (i in rxOffset until rxHistory.size) {
+            val v = rxHistory[i]
+            if (v > rxMax) rxMax = v
+        }
+        val txOffset = (txHistory.size - maxPoints).coerceAtLeast(0)
+        var txMax = 0L
+        for (i in txOffset until txHistory.size) {
+            val v = txHistory[i]
+            if (v > txMax) txMax = v
+        }
+        maxOf(rxMax, txMax).coerceAtLeast(1024L).toFloat()
     }
-    val txOffset = (txHistory.size - maxPoints).coerceAtLeast(0)
-    var txMax = 0L
-    for (i in txOffset until txHistory.size) {
-        val v = txHistory[i]
-        if (v > txMax) txMax = v
-    }
-    val rawMax = maxOf(rxMax, txMax).coerceAtLeast(1024L).toFloat()
     val maxV by animateFloatAsState(
         targetValue = rawMax,
         animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
@@ -85,50 +88,62 @@ fun RateChart(
         val dotRadius = 3.dp.toPx()
         val haloRadius = 6.dp.toPx()
 
-        fun drawSeries(series: List<Long>, color: Color, brush: Brush?) {
-            if (series.size < 2) return
-            val startIdx = (series.size - maxPoints).coerceAtLeast(0)
-            val count = series.size - startIdx
-            if (count < 2) return
-            val step = size.width / (count - 1).coerceAtLeast(1)
-            linePath.reset()
-            var prevX = 0f
-            var prevY = size.height
-            for (i in 0 until count) {
-                val v = series[startIdx + i]
-                val ratio = (v.toFloat() / maxV).coerceIn(0f, 1f)
-                val x = i * step
-                val y = size.height - ratio * usableHeight * 0.92f
-                if (i == 0) {
-                    linePath.moveTo(x, y)
-                } else {
-                    // 水平中点控制点的三次贝塞尔：平滑过渡且严格单调不越界（不会跌破底线或冲出峰值）
-                    val midX = (prevX + x) * 0.5f
-                    linePath.cubicTo(midX, prevY, midX, y, x, y)
-                }
-                prevX = x
-                prevY = y
-            }
-            if (brush != null) {
-                areaPath.reset()
-                areaPath.addPath(linePath)
-                areaPath.lineTo(prevX, size.height)
-                areaPath.lineTo(0f, size.height)
-                areaPath.close()
-                drawPath(areaPath, brush)
-            }
-            drawPath(
-                linePath,
-                color,
-                style = lineStroke,
-            )
-            // 末端采样点锚点
-            val endCenter = Offset(prevX, prevY)
-            drawCircle(color.copy(alpha = 0.24f), radius = haloRadius, center = endCenter)
-            drawCircle(color, radius = dotRadius, center = endCenter)
-        }
-
-        drawSeries(txHistory, secondary, txBrush)
-        drawSeries(rxHistory, lineColor, rxBrush)
+        drawSeries(txHistory, secondary, txBrush, maxPoints, maxV, usableHeight, dotRadius, haloRadius, linePath, areaPath, lineStroke)
+        drawSeries(rxHistory, lineColor, rxBrush, maxPoints, maxV, usableHeight, dotRadius, haloRadius, linePath, areaPath, lineStroke)
     }
+}
+
+private fun DrawScope.drawSeries(
+    series: List<Long>,
+    color: Color,
+    brush: Brush?,
+    maxPoints: Int,
+    maxV: Float,
+    usableHeight: Float,
+    dotRadius: Float,
+    haloRadius: Float,
+    linePath: Path,
+    areaPath: Path,
+    lineStroke: Stroke,
+) {
+    if (series.size < 2) return
+    val startIdx = (series.size - maxPoints).coerceAtLeast(0)
+    val count = series.size - startIdx
+    if (count < 2) return
+    val step = size.width / (count - 1).coerceAtLeast(1)
+    linePath.reset()
+    var prevX = 0f
+    var prevY = size.height
+    for (i in 0 until count) {
+        val v = series[startIdx + i]
+        val ratio = (v.toFloat() / maxV).coerceIn(0f, 1f)
+        val x = i * step
+        val y = size.height - ratio * usableHeight * 0.92f
+        if (i == 0) {
+            linePath.moveTo(x, y)
+        } else {
+            // 水平中点控制点的三次贝塞尔：平滑过渡且严格单调不越界（不会跌破底线或冲出峰值）
+            val midX = (prevX + x) * 0.5f
+            linePath.cubicTo(midX, prevY, midX, y, x, y)
+        }
+        prevX = x
+        prevY = y
+    }
+    if (brush != null) {
+        areaPath.reset()
+        areaPath.addPath(linePath)
+        areaPath.lineTo(prevX, size.height)
+        areaPath.lineTo(0f, size.height)
+        areaPath.close()
+        drawPath(areaPath, brush)
+    }
+    drawPath(
+        linePath,
+        color,
+        style = lineStroke,
+    )
+    // 末端采样点锚点
+    val endCenter = Offset(prevX, prevY)
+    drawCircle(color.copy(alpha = 0.24f), radius = haloRadius, center = endCenter)
+    drawCircle(color, radius = dotRadius, center = endCenter)
 }

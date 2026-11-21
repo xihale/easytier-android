@@ -31,11 +31,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -69,27 +68,30 @@ fun ServiceHeroCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
-    val start by animateColorAsState(
+    val start = animateColorAsState(
         targetValue = if (running) HeroStart else HeroIdleStart,
         animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
         label = "heroGradientStart",
     )
-    val end by animateColorAsState(
+    val end = animateColorAsState(
         targetValue = if (running) HeroEnd else HeroIdleEnd,
         animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
         label = "heroGradientEnd",
     )
     val haptics = rememberHaptics()
     val serviceLabel = stringResource(R.string.hero_service_cd)
+    val shape = MaterialTheme.shapes.extraLarge
     Column(
         modifier
             .fillMaxWidth()
-            .background(
-                Brush.linearGradient(listOf(start, end)),
-                MaterialTheme.shapes.extraLarge,
-            )
-            .clip(MaterialTheme.shapes.extraLarge)
-            .drawBehind { drawMeshDecoration() }
+            .clip(shape)
+            .drawWithCache {
+                val gradient = Brush.linearGradient(listOf(start.value, end.value))
+                onDrawBehind {
+                    drawRect(gradient)
+                    drawMeshDecoration()
+                }
+            }
             .then(
                 if (onClick != null) {
                     Modifier.clickable {
@@ -153,7 +155,7 @@ fun ServiceHeroCard(
                 // TalkBack 默认只读「开/关」，补上服务名语义
                 modifier = Modifier.semantics { contentDescription = serviceLabel },
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = start,
+                    checkedThumbColor = HeroStart,
                     checkedTrackColor = Color.White,
                     uncheckedThumbColor = Color.White,
                     uncheckedTrackColor = Color.White.copy(alpha = 0.3f),
@@ -264,17 +266,18 @@ private fun DrawScope.drawMeshDecoration() {
         Offset(right - 108.dp.toPx(), 86.dp.toPx()),
         Offset(right - 148.dp.toPx(), 58.dp.toPx()),
     )
-    val edges = listOf(
-        0 to 1, 1 to 2, 1 to 4, 2 to 5, 3 to 4, 4 to 5, 1 to 3,
-    )
-    edges.forEach { (a, b) ->
+    MESH_EDGES.forEach { (a, b) ->
         drawLine(lineColor, nodes[a], nodes[b], strokeWidth = 1.5f)
     }
-    val radii = listOf(3.dp, 2.dp, 2.5.dp, 2.dp, 3.dp, 2.dp)
     nodes.forEachIndexed { i, center ->
-        drawCircle(dotColor, radius = radii[i].toPx(), center = center)
+        drawCircle(dotColor, radius = MESH_RADII[i].toPx(), center = center)
     }
 }
+
+private val MESH_EDGES = listOf(
+    0 to 1, 1 to 2, 1 to 4, 2 to 5, 3 to 4, 4 to 5, 1 to 3,
+)
+private val MESH_RADII = listOf(3.dp, 2.dp, 2.5.dp, 2.dp, 3.dp, 2.dp)
 
 private val HeroStart = Color(0xFF2A4FD0)
 private val HeroEnd = Color(0xFF5E7CF5)

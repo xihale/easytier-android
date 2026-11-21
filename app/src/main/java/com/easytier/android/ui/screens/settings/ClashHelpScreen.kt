@@ -82,8 +82,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.easytier.android.util.BackgroundPermission
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 
 // 终端风格深色代码面板色板（与 TomlIoDialogs 保持一致）
@@ -164,6 +166,7 @@ fun ClashHelpScreen(onBack: () -> Unit) {
                 )
             }
                 .distinctUntilChanged()
+                .flowOn(Dispatchers.Default)
                 .collect { inputs ->
                     socks5Enabled = inputs.socks5Enabled
                     detectedRoutes = inputs.cidrs.isNotEmpty() || inputs.zones.isNotEmpty()

@@ -393,9 +393,10 @@ fun TomlExportDialog(
                 },
             )
             HorizontalDivider(thickness = 0.5.dp, color = CodeLine)
+            val highlighted = remember(toml) { highlightToml(toml) }
             SelectionContainer {
                 Text(
-                    highlightToml(toml),
+                    highlighted,
                     style = MonoStyle.copy(fontSize = 12.sp, color = CodeFg),
                     modifier = Modifier
                         .fillMaxWidth()

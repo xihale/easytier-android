@@ -126,13 +126,19 @@ class StatusViewModel(val container: AppContainer) : ViewModel() {
         lastRxTotal = rx
         lastTxTotal = tx
 
+        val rxWasFullAndZero = rxRate == 0L && rxHistoryDeque.size >= HISTORY_LEN && _rxRateHistory.value.all { it == 0L }
         if (rxHistoryDeque.size >= HISTORY_LEN) rxHistoryDeque.removeFirst()
         rxHistoryDeque.addLast(rxRate)
+        if (!rxWasFullAndZero) {
+            _rxRateHistory.value = rxHistoryDeque.toList()
+        }
+
+        val txWasFullAndZero = txRate == 0L && txHistoryDeque.size >= HISTORY_LEN && _txRateHistory.value.all { it == 0L }
         if (txHistoryDeque.size >= HISTORY_LEN) txHistoryDeque.removeFirst()
         txHistoryDeque.addLast(txRate)
-
-        _rxRateHistory.value = rxHistoryDeque.toList()
-        _txRateHistory.value = txHistoryDeque.toList()
+        if (!txWasFullAndZero) {
+            _txRateHistory.value = txHistoryDeque.toList()
+        }
     }
 
     companion object {
@@ -161,9 +167,11 @@ fun StatusScreen(
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val copiedLabel = stringResource(R.string.common_copied)
-    val copyIpToClipboard: (String) -> Unit = { ip ->
-        clipboard.setText(AnnotatedString(ip))
-        scope.launch { snackbarHostState.showSnackbar(copiedLabel) }
+    val copyIpToClipboard: (String) -> Unit = remember(clipboard, copiedLabel) {
+        { ip ->
+            clipboard.setText(AnnotatedString(ip))
+            scope.launch { snackbarHostState.showSnackbar(copiedLabel) }
+        }
     }
     // 单击节点卡打开详情对话框；长按复制 IP
     var selectedPeer by remember { mutableStateOf<TaggedPeer?>(null) }
@@ -455,7 +463,7 @@ private fun NodeDetails(info: NetworkInstanceRunningInfo) {
         }
     }
     InfoRow(versionLabel, info.myNodeInfo?.version ?: "--")
-    val listeners = info.myNodeInfo?.publicListeners().orEmpty()
+    val listeners = remember(info) { info.myNodeInfo?.publicListeners().orEmpty() }
     // 监听行：与 InfoRow 相同的「标签左 / 内容右」结构；FlowRow 负责换行，
     // 横向 spacedBy 是关键——否则同一行的胶囊会直接贴在一起
     Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.Top) {
@@ -474,12 +482,13 @@ private fun NodeDetails(info: NetworkInstanceRunningInfo) {
                 modifier = Modifier.weight(1f),
             )
         } else {
+            val labels = remember(listeners) { listenerLabels(listeners) }
             FlowRow(
                 Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                listenerLabels(listeners).forEach { label -> ListenerChip(label) }
+                labels.forEach { label -> ListenerChip(label) }
             }
         }
     }
