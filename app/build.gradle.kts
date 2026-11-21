@@ -1,5 +1,3 @@
-import java.util.concurrent.TimeUnit
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,13 +10,13 @@ plugins {
 //   tag 之后形如 0.1.2-1-g<sha>，工作区有未提交改动再加 -dirty；
 // versionCode = major*1_000_000 + minor*10_000 + patch*100 + tag 后提交数（封顶 99），单调递增
 fun runGit(vararg args: String): String? = runCatching {
-    val process = ProcessBuilder("git", *args)
-        .directory(rootDir)
-        .start()
-    // 不用 Kotlin 的 InputStream.readText() 扩展：部分 Gradle/Kotlin 组合下脚本编译期解析不到该扩展
-    val output = String(process.inputStream.readAllBytes(), Charsets.UTF_8)
-    process.waitFor(10, TimeUnit.SECONDS)
-    output.trim().takeIf { process.exitValue() == 0 }
+    val execOutput = providers.exec {
+        commandLine("git", *args)
+        workingDir = rootDir
+        isIgnoreExitValue = true
+    }
+    val exitCode = execOutput.result.get().exitValue
+    execOutput.standardOutput.asText.get().trim().takeIf { exitCode == 0 }
 }.getOrNull()
 
 val appVersion: Pair<String, Int> = run {
@@ -49,7 +47,10 @@ val signingEnvVars = listOf(
     "SIGNING_KEY_ALIAS",
     "SIGNING_KEY_PASSWORD",
 )
-val missingSigningEnv = signingEnvVars.filter { System.getenv(it).isNullOrBlank() }
+val signingEnv = signingEnvVars.associateWith { name ->
+    providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
+}
+val missingSigningEnv = signingEnvVars.filter { signingEnv[it] == null }
 val hasReleaseSigning = missingSigningEnv.isEmpty()
 
 android {
@@ -74,13 +75,13 @@ android {
     if (hasReleaseSigning) {
         signingConfigs {
             create("release") {
-                storeFile = file(System.getenv("SIGNING_KEYSTORE_FILE"))
+                storeFile = file(signingEnv.getValue("SIGNING_KEYSTORE_FILE")!!)
                 check(storeFile!!.exists()) {
                     "签名 keystore 不存在：${storeFile!!.absolutePath}（SIGNING_KEYSTORE_FILE）"
                 }
-                storePassword = System.getenv("SIGNING_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
-                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+                storePassword = signingEnv.getValue("SIGNING_KEYSTORE_PASSWORD")
+                keyAlias = signingEnv.getValue("SIGNING_KEY_ALIAS")
+                keyPassword = signingEnv.getValue("SIGNING_KEY_PASSWORD")
             }
         }
     }
@@ -120,18 +121,33 @@ android {
         buildConfig = true
     }
 
+    androidResources {
+        localeFilters += listOf("en", "zh-rCN")
+    }
+
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
     packaging {
-        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        resources.excludes += listOf(
+            "/META-INF/{AL2.0,LGPL2.1}",
+            "/META-INF/**/LICENSE.txt",
+            "/META-INF/*.version",
+            "DebugProbesKt.bin",
+        )
         // 压缩 .so（默认 Stored 直读），APK 减 ~1/3；安装后解压到本地，运行时无差异
         jniLibs.useLegacyPackaging = true
     }
 }
 
 // release 变体缺少签名环境变量时直接失败，避免静默产出 debug 签名/无签名包
+val projectPathPrefix = if (path == ":") ":" else "$path:"
 gradle.taskGraph.whenReady {
     if (hasReleaseSigning) return@whenReady
     val releaseTask = allTasks.firstOrNull { task ->
-        task.project == project && task.name.contains("Release") &&
+        task.path.startsWith(projectPathPrefix) && task.name.contains("Release") &&
             listOf("assemble", "bundle", "package", "sign").any { task.name.startsWith(it) }
     }
     if (releaseTask != null) {
