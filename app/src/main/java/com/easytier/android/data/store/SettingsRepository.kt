@@ -11,11 +11,16 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.easytier.android.data.update.ReleaseInfo
 import com.easytier.android.util.DnsServers
 import java.io.IOException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.shareIn
 
 private val Context.settingsDataStore by preferencesDataStore(name = "settings")
 
@@ -40,7 +45,10 @@ data class AppSettings(
 /**
  * 应用设置仓库（DataStore）。
  */
-class SettingsRepository(private val context: Context) {
+class SettingsRepository(
+    private val context: Context,
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+) {
 
     private val bootPrefs = context.applicationContext
         .getSharedPreferences("settings_boot_cache", Context.MODE_PRIVATE)
@@ -96,6 +104,7 @@ class SettingsRepository(private val context: Context) {
                 bootPrefs.edit().putString("theme_mode", snapshot.themeMode).apply()
             }
         }
+        .shareIn(scope, SharingStarted.Eagerly, replay = 1)
 
     /**
      * 非阻塞获取首帧初始设置：优先内存最新快照，其次轻量缓存的主题模式，

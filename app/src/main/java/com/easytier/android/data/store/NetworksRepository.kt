@@ -8,10 +8,15 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.easytier.android.data.model.NetworkConfig
 import com.easytier.android.data.model.SavedNetwork
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.IOException
@@ -22,7 +27,10 @@ private val Context.networksDataStore by preferencesDataStore(name = "networks")
  * 已保存网络配置仓库（DataStore 持久化）。
  * 每个 SavedNetwork 以 instance_id 为 key 存储 JSON。
  */
-class NetworksRepository(private val context: Context) {
+class NetworksRepository(
+    private val context: Context,
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+) {
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -49,6 +57,11 @@ class NetworksRepository(private val context: Context) {
                 }
             }.sortedBy { it.createdAt }
         }
+        .shareIn(
+            scope = scope,
+            started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000L, replayExpirationMillis = 0L),
+            replay = 1,
+        )
 
     suspend fun save(network: SavedNetwork) {
         context.networksDataStore.edit { prefs ->

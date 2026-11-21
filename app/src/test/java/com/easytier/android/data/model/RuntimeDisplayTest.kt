@@ -74,6 +74,15 @@ class RuntimeDisplayTest {
         // 已知变体大小写不敏感匹配
         assertEquals(NatType.FullCone, json.decodeFromString<NatType>("\"FullCone\""))
     }
+
+    @Test
+    fun `ipv4Addr toDottedString formats zero max and high-bit octets`() {
+        assertEquals("0.0.0.0", Ipv4Addr(0L).toDottedString())
+        assertEquals("255.255.255.255", Ipv4Addr(0xFFFFFFFFL).toDottedString())
+        assertEquals("192.168.1.254", Ipv4Addr(0xC0A801FEL).toDottedString())
+        assertEquals("128.0.0.1", Ipv4Addr(0x80000001L).toDottedString())
+        assertEquals("10.147.0.3", Ipv4Addr(0x0A930003L).toDottedString())
+    }
 }
 
 class PeerLatencyBadgeTest {

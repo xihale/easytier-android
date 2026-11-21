@@ -4,8 +4,10 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import com.easytier.android.R
+import com.easytier.android.data.model.Ipv4Inet
 import com.easytier.android.data.model.NetworkInstanceRunningInfo
 import com.easytier.android.data.model.NetworkInstanceRunningInfoMap
+import com.easytier.android.data.model.Route
 import com.easytier.android.data.model.RuntimeJson
 import com.easytier.android.data.model.SavedNetwork
 import com.easytier.jni.EasyTierJNI
@@ -286,7 +288,8 @@ class EasyTierEngine(private val appContext: Context? = null) {
 
         private const val FAST_BOOTSTRAP_WINDOW_MS = 12_000L
         private const val NETWORK_HANDOFF_WINDOW_MS = 8_000L
-        private const val MAX_IDLE_BACKOFF_STEPS = 4
+        internal const val MAX_BG_CONVERGING_STEPS = 12
+        private const val MAX_IDLE_BACKOFF_STEPS = MAX_BG_CONVERGING_STEPS + 2
         private const val MAX_INSTANCES = 16
         private const val MAX_EVENTS = 200
 
@@ -299,10 +302,29 @@ class EasyTierEngine(private val appContext: Context? = null) {
         ): Long = when {
             inFastWindow && !allSettled -> FAST_POLL_INTERVAL_MS
             isForeground -> FOREGROUND_POLL_INTERVAL_MS
-            !allSettled -> BG_CONVERGING_POLL_INTERVAL_MS
+            !allSettled -> when {
+                idleBackoffSteps < MAX_BG_CONVERGING_STEPS -> BG_CONVERGING_POLL_INTERVAL_MS
+                idleBackoffSteps < MAX_BG_CONVERGING_STEPS + 2 -> BG_IDLE_POLL_INTERVAL_MS
+                else -> BG_DEEP_IDLE_POLL_INTERVAL_MS
+            }
             idleBackoffSteps >= 2 -> BG_DEEP_IDLE_POLL_INTERVAL_MS
             else -> BG_IDLE_POLL_INTERVAL_MS
         }
+
+        private data class RouteTopologyKey(
+            val peerId: Long,
+            val ipv4Addr: Ipv4Inet?,
+            val nextHopPeerId: Long,
+            val cost: Long,
+            val proxyCidrs: List<String>,
+        )
+
+        private fun isSameRouteFields(ra: Route, rb: Route): Boolean =
+            ra.peerId == rb.peerId &&
+                ra.ipv4Addr == rb.ipv4Addr &&
+                ra.nextHopPeerId == rb.nextHopPeerId &&
+                ra.cost == rb.cost &&
+                ra.proxyCidrs == rb.proxyCidrs
 
         /**
          * 判断两个实例状态在「核心拓扑与连接可用性」层面是否一致（忽略字节计数与微秒延迟抖动）。
@@ -330,19 +352,34 @@ class EasyTierEngine(private val appContext: Context? = null) {
             a: NetworkInstanceRunningInfo,
             b: NetworkInstanceRunningInfo,
         ): Boolean {
-            for (i in a.routes.indices) {
-                val ra = a.routes[i]
-                val rb = b.routes[i]
-                if (ra.peerId != rb.peerId ||
-                    ra.ipv4Addr != rb.ipv4Addr ||
-                    ra.nextHopPeerId != rb.nextHopPeerId ||
-                    ra.cost != rb.cost ||
-                    ra.proxyCidrs != rb.proxyCidrs
-                ) {
-                    return false
+            val routesA = a.routes
+            val routesB = b.routes
+            if (routesA.size != routesB.size) return false
+            var mismatchIndex = -1
+            for (i in routesA.indices) {
+                if (!isSameRouteFields(routesA[i], routesB[i])) {
+                    mismatchIndex = i
+                    break
                 }
             }
-            return true
+            if (mismatchIndex == -1) return true
+            if (routesA.size <= 1) return false
+
+            // 仅在多路由顺序可能漂移时回退到无序多重集比对，常规有序情况零分配。
+            val remaining = routesA.size - mismatchIndex
+            val counts = HashMap<RouteTopologyKey, Int>(remaining * 2)
+            for (i in mismatchIndex until routesA.size) {
+                val r = routesA[i]
+                val key = RouteTopologyKey(r.peerId, r.ipv4Addr, r.nextHopPeerId, r.cost, r.proxyCidrs)
+                counts[key] = (counts[key] ?: 0) + 1
+            }
+            for (i in mismatchIndex until routesB.size) {
+                val r = routesB[i]
+                val key = RouteTopologyKey(r.peerId, r.ipv4Addr, r.nextHopPeerId, r.cost, r.proxyCidrs)
+                val count = counts[key] ?: return false
+                if (count == 1) counts.remove(key) else counts[key] = count - 1
+            }
+            return counts.isEmpty()
         }
     }
 }

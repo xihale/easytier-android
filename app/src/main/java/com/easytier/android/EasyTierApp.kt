@@ -22,8 +22,11 @@ import kotlinx.coroutines.launch
 class AppContainer(app: Application) {
     /** 非 UI 层（ViewModel 报错文案等）取本地化字符串用。 */
     val appContext: android.content.Context = app.applicationContext
-    val settingsRepository = SettingsRepository(appContext)
-    val networksRepository = NetworksRepository(appContext)
+    private val containerScope: CoroutineScope =
+        (app as? EasyTierApp)?.applicationScope
+            ?: CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val settingsRepository = SettingsRepository(appContext, containerScope)
+    val networksRepository = NetworksRepository(appContext, containerScope)
     val engine = EasyTierEngine(appContext)
     val vpnController = VpnController(appContext, engine, settingsRepository)
     val updateChecker = UpdateChecker(settingsRepository)

@@ -100,15 +100,35 @@ object ClashRouteGenerator {
 
     /** 点分十进制 → 无符号 32 位（Long 承载）；非法返回 null。 */
     internal fun parseIpv4(dotted: String): Long? {
-        val parts = dotted.trim().split('.')
-        if (parts.size != 4) return null
+        var start = 0
+        var end = dotted.length - 1
+        while (start <= end && dotted[start].isWhitespace()) start++
+        while (end >= start && dotted[end].isWhitespace()) end--
+        if (start > end) return null
+
         var v = 0L
-        for (p in parts) {
-            val octet = p.toIntOrNull() ?: return null
-            if (octet !in 0..255) return null
-            v = (v shl 8) or octet.toLong()
+        var octets = 0
+        var octet = 0
+        var hasDigit = false
+
+        for (i in start..end) {
+            val ch = dotted[i]
+            if (ch == '.') {
+                if (!hasDigit || octets >= 3) return null
+                v = (v shl 8) or octet.toLong()
+                octets++
+                octet = 0
+                hasDigit = false
+            } else if (ch in '0'..'9') {
+                octet = octet * 10 + (ch - '0')
+                if (octet > 255) return null
+                hasDigit = true
+            } else {
+                return null
+            }
         }
-        return v
+        if (!hasDigit || octets != 3) return null
+        return (v shl 8) or octet.toLong()
     }
 
     private fun toDotted(v: Long): String =

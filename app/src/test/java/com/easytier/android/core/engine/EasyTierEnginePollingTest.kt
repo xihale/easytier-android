@@ -102,4 +102,112 @@ class EasyTierEnginePollingTest {
         )
         assertFalse(EasyTierEngine.isSameTopologyState(s1, s4))
     }
+
+    @Test
+    fun `background unsettled instance backs off from 5s converging to 30s idle and 60s deep idle`() {
+        val threshold = EasyTierEngine.MAX_BG_CONVERGING_STEPS
+        assertEquals(
+            EasyTierEngine.BG_CONVERGING_POLL_INTERVAL_MS,
+            EasyTierEngine.computePollIntervalMs(
+                isForeground = false,
+                inFastWindow = false,
+                allSettled = false,
+                idleBackoffSteps = threshold - 1,
+            ),
+        )
+        assertEquals(
+            EasyTierEngine.BG_IDLE_POLL_INTERVAL_MS,
+            EasyTierEngine.computePollIntervalMs(
+                isForeground = false,
+                inFastWindow = false,
+                allSettled = false,
+                idleBackoffSteps = threshold,
+            ),
+        )
+        assertEquals(
+            EasyTierEngine.BG_IDLE_POLL_INTERVAL_MS,
+            EasyTierEngine.computePollIntervalMs(
+                isForeground = false,
+                inFastWindow = false,
+                allSettled = false,
+                idleBackoffSteps = threshold + 1,
+            ),
+        )
+        assertEquals(
+            EasyTierEngine.BG_DEEP_IDLE_POLL_INTERVAL_MS,
+            EasyTierEngine.computePollIntervalMs(
+                isForeground = false,
+                inFastWindow = false,
+                allSettled = false,
+                idleBackoffSteps = threshold + 2,
+            ),
+        )
+    }
+
+    @Test
+    fun `isSameTopologyState treats reordered identical routes as unchanged and detects content diff`() {
+        val ip = Ipv4Inet(Ipv4Addr(0x0A909002L), 24)
+        val r1 = Route(
+            peerId = 1,
+            ipv4Addr = Ipv4Inet(Ipv4Addr(0x0A909003L), 24),
+            nextHopPeerId = 1,
+            cost = 1,
+            proxyCidrs = listOf("10.1.0.0/16"),
+            pathLatency = 12,
+        )
+        val r2 = Route(
+            peerId = 2,
+            ipv4Addr = Ipv4Inet(Ipv4Addr(0x0A909004L), 24),
+            nextHopPeerId = 1,
+            cost = 2,
+            proxyCidrs = listOf("192.168.10.0/24"),
+            pathLatency = 35,
+        )
+        val r3 = Route(
+            peerId = 3,
+            ipv4Addr = Ipv4Inet(Ipv4Addr(0x0A909005L), 24),
+            nextHopPeerId = 3,
+            cost = 1,
+            proxyCidrs = emptyList(),
+            pathLatency = 8,
+        )
+
+        val base = InstanceState.Running(
+            NetworkInstanceRunningInfo(
+                running = true,
+                myNodeInfo = MyNodeInfo(virtualIpv4 = ip),
+                routes = listOf(r1, r2, r3),
+            ),
+        )
+        val reordered = InstanceState.Running(
+            NetworkInstanceRunningInfo(
+                running = true,
+                myNodeInfo = MyNodeInfo(virtualIpv4 = ip),
+                routes = listOf(
+                    r1.copy(pathLatency = 99),
+                    r3.copy(hostname = "node-3"),
+                    r2.copy(pathLatency = 10),
+                ),
+            ),
+        )
+        assertTrue(EasyTierEngine.isSameTopologyState(base, reordered))
+
+        val changedCost = InstanceState.Running(
+            NetworkInstanceRunningInfo(
+                running = true,
+                myNodeInfo = MyNodeInfo(virtualIpv4 = ip),
+                routes = listOf(r1, r3, r2.copy(cost = 3)),
+            ),
+        )
+        assertFalse(EasyTierEngine.isSameTopologyState(base, changedCost))
+
+        val duplicateMismatch = InstanceState.Running(
+            NetworkInstanceRunningInfo(
+                running = true,
+                myNodeInfo = MyNodeInfo(virtualIpv4 = ip),
+                routes = listOf(r1, r1, r2),
+            ),
+        )
+        assertFalse(EasyTierEngine.isSameTopologyState(base, duplicateMismatch))
+    }
 }

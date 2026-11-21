@@ -135,6 +135,31 @@ class ClashRouteGeneratorTest {
         assertEquals(listOf("10.0.0.0/8", "192.168.0.0/16", "192.168.0.0/24"), cidrs)
     }
 
+    @Test
+    fun `parseIpv4 validates trimmed valid boundaries and rejects malformed inputs`() {
+        assertEquals(0L, ClashRouteGenerator.parseIpv4("0.0.0.0"))
+        assertEquals(0xFFFFFFFFL, ClashRouteGenerator.parseIpv4("  255.255.255.255\t"))
+        assertEquals(0xC0A8010AL, ClashRouteGenerator.parseIpv4(" 192.168.1.10 "))
+        assertEquals(0x0A000001L, ClashRouteGenerator.parseIpv4("10.0.0.1"))
+
+        assertNull(ClashRouteGenerator.parseIpv4(""))
+        assertNull(ClashRouteGenerator.parseIpv4("   "))
+        assertNull(ClashRouteGenerator.parseIpv4("10.0.0"))
+        assertNull(ClashRouteGenerator.parseIpv4("10.0.0.1.2"))
+        assertNull(ClashRouteGenerator.parseIpv4(".10.0.1"))
+        assertNull(ClashRouteGenerator.parseIpv4("10..0.1"))
+        assertNull(ClashRouteGenerator.parseIpv4("10.0.0."))
+        assertNull(ClashRouteGenerator.parseIpv4("256.0.0.1"))
+        assertNull(ClashRouteGenerator.parseIpv4("-1.0.0.1"))
+        assertNull(ClashRouteGenerator.parseIpv4("10. 0.0.1"))
+        assertNull(ClashRouteGenerator.parseIpv4("10.a.0.1"))
+        assertNull(ClashRouteGenerator.parseIpv4("99999999999999999999.0.0.1"))
+
+        assertEquals("192.168.1.0/24", ClashRouteGenerator.normalizeCidr("  192.168.1.42 /24 "))
+        assertNull(ClashRouteGenerator.normalizeCidr("192.168.1.1.1/24"))
+        assertNull(ClashRouteGenerator.normalizeCidr("192.168..1/24"))
+    }
+
     private fun ip(dotted: String): Long {
         val parts = dotted.split('.').map { it.toLong() }
         return (parts[0] shl 24) or (parts[1] shl 16) or (parts[2] shl 8) or parts[3]

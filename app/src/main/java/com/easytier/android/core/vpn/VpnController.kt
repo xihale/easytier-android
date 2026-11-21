@@ -17,6 +17,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -144,31 +145,48 @@ class VpnController(
         }
         scope.launch {
             // 服务开启期间，实例拿到/变更虚拟 IP 或远端子网代理路由变化时自动建立/热更新 TUN。
-            // 先走无锁快路径比对 TunSpec，避免每 2s 流量计数刷新时无意义争抢 startMutex。
+            // 先走无锁快路径比对 TunSpec，避免每 2s 流量计数刷新时无意义争抢 startMutex；
+            // 已规划出的 TunSpec 直接传入锁内复用，避免同一轮变化规划两次。
             engine.states.collect { states ->
                 if (!_serviceRunning.value || !vpnEnabled) return@collect
-                if (!hasPendingTunChanges(states)) return@collect
+                val updates = collectPendingTunUpdates(states) ?: return@collect
                 startMutex.withLock {
                     if (!_serviceRunning.value || !vpnEnabled) return@withLock
-                    states.forEach { (name, state) ->
-                        (state as? InstanceState.Running)?.info?.let { reconcileTunLocked(name, it) }
+                    updates.forEach { update ->
+                        val currentConfig = runningConfigs[update.name] ?: return@forEach
+                        if (currentConfig == update.config) {
+                            applyTunSpecLocked(update.name, update.spec)
+                        } else {
+                            reconcileTunLocked(update.name, update.info)
+                        }
                     }
                 }
             }
         }
     }
 
-    /** 无锁快路径：判断当前引擎状态是否存在需要新建或更新的 [TunSpec]。 */
-    private fun hasPendingTunChanges(states: Map<String, InstanceState>): Boolean {
+    private class PendingTunUpdate(
+        val name: String,
+        val config: NetworkConfig,
+        val info: NetworkInstanceRunningInfo,
+        val spec: TunSpec,
+    )
+
+    /** 无锁快路径：收集需要新建或更新的 [TunSpec]；无变更时返回 null，避免额外集合分配。 */
+    private fun collectPendingTunUpdates(
+        states: Map<String, InstanceState>,
+    ): List<PendingTunUpdate>? {
+        var pending: MutableList<PendingTunUpdate>? = null
         for ((name, state) in states) {
             val info = (state as? InstanceState.Running)?.info ?: continue
             val config = runningConfigs[name] ?: continue
             val planned = TunRoutePlanner.plan(name, config, info) ?: continue
             if (establishedTunSpecs[name] != planned) {
-                return true
+                if (pending == null) pending = ArrayList(states.size)
+                pending.add(PendingTunUpdate(name, config, info, planned))
             }
         }
-        return false
+        return pending
     }
 
     /** 为运行中且已拿到虚拟 IP 的实例建立或热更新 TUN（幂等）。调用方需持有 [startMutex]。 */
@@ -176,6 +194,10 @@ class VpnController(
         if (!vpnEnabled) return
         val config = runningConfigs[name] ?: return
         val planned = TunRoutePlanner.plan(name, config, info) ?: return
+        applyTunSpecLocked(name, planned)
+    }
+
+    private fun applyTunSpecLocked(name: String, planned: TunSpec) {
         if (establishedTunSpecs[name] == planned) return
         establishedTunSpecs[name] = planned
         runCatching {
@@ -275,14 +297,19 @@ class VpnController(
      * 没有勾选的网络时报错并不启动。
      */
     fun startService(enabledNetworks: List<SavedNetwork>): Result<Unit> {
-        if (enabledNetworks.isEmpty()) {
+        if (startServiceAsync(enabledNetworks) == null) {
             return Result.failure(
                 IllegalStateException(context.getString(R.string.error_no_enabled_networks)),
             )
         }
+        return Result.success(Unit)
+    }
+
+    private fun startServiceAsync(enabledNetworks: List<SavedNetwork>): Job? {
+        if (enabledNetworks.isEmpty()) return null
         _serviceRunning.value = true
         connectivityMonitor.start()
-        scope.launch {
+        return scope.launch {
             startMutex.withLock {
                 if (!_serviceRunning.value) return@withLock
                 // 停掉已不在勾选集合里的运行实例
@@ -314,7 +341,6 @@ class VpnController(
                 }
             }
         }
-        return Result.success(Unit)
     }
 
     /** 停止服务（引擎 + TUN 全停）。 */
@@ -336,6 +362,19 @@ class VpnController(
     /** 开机自启用：直接启动服务（引擎 + 勾选网络）。 */
     fun startServiceWithNetworks(networks: List<SavedNetwork>) {
         startService(networks.filter { it.enabled })
+    }
+
+    /**
+     * 开机自启挂起入口：等待 [startMutex] 内的实例与前台/VPN 服务启动调用完成后再返回，
+     * 确保 [BootCompletedReceiver] 在调用 `PendingResult.finish()` 前已完成 `startForegroundService`。
+     */
+    suspend fun startServiceWithNetworksAndAwait(networks: List<SavedNetwork>): Result<Unit> {
+        val job = startServiceAsync(networks.filter { it.enabled })
+            ?: return Result.failure(
+                IllegalStateException(context.getString(R.string.error_no_enabled_networks)),
+            )
+        job.join()
+        return Result.success(Unit)
     }
 
     /** 外部停止（通知栏「停止」/ VPN 被系统撤销 / TUN 建立失败）：停服务并停全部网络。 */

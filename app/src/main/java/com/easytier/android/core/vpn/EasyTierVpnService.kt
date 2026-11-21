@@ -18,11 +18,14 @@ import com.easytier.android.MainActivity
 import com.easytier.android.R
 import com.easytier.android.core.clash.ClashRouteGenerator
 import com.easytier.jni.EasyTierJNI
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -43,13 +46,16 @@ class EasyTierVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var appliedSpec: TunSpec? = null
+    private val fdLock = Any()
     private val tunMutex = Mutex()
     private var applyJob: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    @Volatile
+    private var stopped = false
+
     override fun onCreate() {
         super.onCreate()
-        isServiceAlive = true
         createNotificationChannel()
     }
 
@@ -89,6 +95,7 @@ class EasyTierVpnService : VpnService() {
 
         safeStartForeground(buildNotification(getString(R.string.vpn_state_running, name)))
 
+        stopped = false
         val targetSpec = TunSpec(
             instanceName = name,
             ipv4Cidr = ipv4,
@@ -101,13 +108,18 @@ class EasyTierVpnService : VpnService() {
         applyJob?.cancel()
         applyJob = scope.launch {
             tunMutex.withLock {
-                if (vpnInterface != null && appliedSpec == targetSpec) {
+                if (stopped || !isActive) return@withLock
+                val alreadyApplied = synchronized(fdLock) {
+                    vpnInterface != null && appliedSpec == targetSpec
+                }
+                if (alreadyApplied) {
                     return@withLock
                 }
                 runCatching { establish(targetSpec) }
-                    .onFailure {
-                        Log.e(TAG, "VPN 建立失败", it)
-                        onEstablishFailed(it)
+                    .onFailure { err ->
+                        if (err is CancellationException || stopped || !isActive) return@onFailure
+                        Log.e(TAG, "VPN 建立失败", err)
+                        onEstablishFailed(err)
                     }
             }
         }
@@ -134,7 +146,8 @@ class EasyTierVpnService : VpnService() {
         }
     }
 
-    private fun establish(spec: TunSpec) {
+    private suspend fun establish(spec: TunSpec) {
+        if (stopped || !currentCoroutineContext().isActive) return
         val (ip, prefix) = splitCidr(spec.ipv4Cidr, 24)
         val builder = Builder()
             .setSession("EasyTier")
@@ -179,7 +192,16 @@ class EasyTierVpnService : VpnService() {
         val newTun = builder.establish()
             ?: throw IllegalStateException(getString(R.string.vpn_err_establish_null))
 
+        if (stopped || !currentCoroutineContext().isActive) {
+            runCatching { newTun.close() }
+            return
+        }
+
         val rc = EasyTierJNI.setTunFd(spec.instanceName, newTun.fd)
+        if (stopped || !currentCoroutineContext().isActive) {
+            runCatching { newTun.close() }
+            return
+        }
         if (rc != 0) {
             runCatching { newTun.close() }
             throw IllegalStateException(
@@ -188,9 +210,22 @@ class EasyTierVpnService : VpnService() {
         }
 
         // 先切新 fd 再关旧 fd：消除热更新期间的数据包黑洞与泄漏窗口
-        val oldTun = vpnInterface
-        vpnInterface = newTun
-        appliedSpec = spec
+        var aborted = false
+        val oldTun = synchronized(fdLock) {
+            if (stopped) {
+                aborted = true
+                null
+            } else {
+                val prev = vpnInterface
+                vpnInterface = newTun
+                appliedSpec = spec
+                prev
+            }
+        }
+        if (aborted) {
+            runCatching { newTun.close() }
+            return
+        }
         runCatching { oldTun?.close() }
 
         Log.i(
@@ -201,11 +236,13 @@ class EasyTierVpnService : VpnService() {
     }
 
     private fun stopVpn() {
+        val old = synchronized(fdLock) {
+            stopped = true
+            appliedSpec = null
+            vpnInterface.also { vpnInterface = null }
+        }
         applyJob?.cancel()
         applyJob = null
-        appliedSpec = null
-        val old = vpnInterface
-        vpnInterface = null
         runCatching { old?.close() }
     }
 
@@ -234,7 +271,7 @@ class EasyTierVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        isServiceAlive = false
+        stopped = true
         scope.cancel()
         stopVpn()
         runCatching {
@@ -333,9 +370,6 @@ class EasyTierVpnService : VpnService() {
         private const val NOTIFICATION_ID = 1
         private const val ALERT_NOTIFICATION_ID = 2
 
-        @Volatile
-        private var isServiceAlive: Boolean = false
-
         const val EXTRA_INSTANCE_NAME = "instance_name"
         const val EXTRA_IPV4 = "ipv4_address"
         const val EXTRA_PROXY_CIDRS = "proxy_cidrs"
@@ -385,18 +419,9 @@ class EasyTierVpnService : VpnService() {
 
         /** 仅关闭 TUN 与前台服务，核心实例不受影响（服务/网络解耦）。 */
         fun stopTun(context: Context) {
-            if (!isServiceAlive) {
-                runCatching { context.stopService(Intent(context, EasyTierVpnService::class.java)) }
-                return
-            }
             runCatching {
-                ContextCompat.startForegroundService(
-                    context,
-                    Intent(context, EasyTierVpnService::class.java).setAction(ACTION_STOP_TUN),
-                )
-            }.onFailure {
-                runCatching { context.stopService(Intent(context, EasyTierVpnService::class.java)) }
-            }
+                context.stopService(Intent(context, EasyTierVpnService::class.java))
+            }.onFailure { Log.w(TAG, "停止 VPN 服务失败: ${it.message}") }
         }
 
         private fun splitCidr(cidr: String, defaultPrefix: Int): Pair<String, Int> {

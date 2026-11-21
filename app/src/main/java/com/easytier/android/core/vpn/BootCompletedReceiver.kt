@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import com.easytier.android.EasyTierApp
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** 开机自启：恢复服务（引擎 + 全部勾选的网络）。组件默认禁用，由设置页开关控制。 */
 class BootCompletedReceiver : BroadcastReceiver() {
@@ -18,11 +19,13 @@ class BootCompletedReceiver : BroadcastReceiver() {
         val pending = goAsync()
         app.applicationScope.launch {
             try {
-                val settings = app.container.settingsRepository.settings.first()
-                if (!settings.autoStartOnBoot) return@launch
-                // 服务与网络解耦：开机自启 = 启动服务（引擎 + 勾选网络）
-                val all = app.container.networksRepository.networks.first()
-                app.container.vpnController.startServiceWithNetworks(all)
+                withTimeoutOrNull(BOOT_START_TIMEOUT_MS) {
+                    val settings = app.container.settingsRepository.settings.first()
+                    if (!settings.autoStartOnBoot) return@withTimeoutOrNull
+                    // 服务与网络解耦：开机自启 = 启动服务（引擎 + 勾选网络）
+                    val all = app.container.networksRepository.networks.first()
+                    app.container.vpnController.startServiceWithNetworksAndAwait(all)
+                }
             } finally {
                 pending.finish()
             }
@@ -30,6 +33,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
     }
 
     companion object {
+        private const val BOOT_START_TIMEOUT_MS = 8_000L
+
         /** 设置开机自启组件启用状态。 */
         fun setEnabled(context: Context, enabled: Boolean) {
             context.packageManager.setComponentEnabledSetting(

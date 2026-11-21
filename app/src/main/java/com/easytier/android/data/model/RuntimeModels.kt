@@ -101,12 +101,7 @@ data class Ipv4Inet(
 @Serializable
 data class Ipv4Addr(val addr: Long = 0) {
     fun toDottedString(): String =
-        "%d.%d.%d.%d".format(
-            (addr shr 24) and 0xFF,
-            (addr shr 16) and 0xFF,
-            (addr shr 8) and 0xFF,
-            addr and 0xFF,
-        )
+        "${(addr shr 24) and 0xFF}.${(addr shr 16) and 0xFF}.${(addr shr 8) and 0xFF}.${addr and 0xFF}"
 }
 
 @Serializable

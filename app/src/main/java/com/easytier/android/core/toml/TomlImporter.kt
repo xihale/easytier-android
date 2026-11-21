@@ -125,9 +125,11 @@ object TomlImporter {
         )
     }
 
+    private val ACL_REGEX = Regex("(?ms)^[ \\t]*\\[acl\\].*?(?=^[ \\t]*\\[|\\z)")
+
     /** 提取 TOML 中的 [acl] 段原文（供重新导出保留）。容忍行首缩进，截取到下一个表头或文末。 */
     fun extractAclToml(tomlString: String): String? {
-        val match = Regex("(?ms)^[ \\t]*\\[acl\\].*?(?=^[ \\t]*\\[|\\z)").find(tomlString.trim())
+        val match = ACL_REGEX.find(tomlString.trim())
         return match?.value?.trim()?.takeIf { it.isNotBlank() }
     }
 
