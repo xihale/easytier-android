@@ -119,4 +119,75 @@ class VpnConnectionHealthTest {
             VpnController.evaluateUnconnectedFailure(standalone, hasPhysicalNetwork = false, hasValidatedInternet = false),
         )
     }
+
+    @Test
+    fun `shouldRecoverOnSystemRestart requires enabled networks, permission, and persistent flag`() {
+        assertTrue(
+            VpnController.shouldRecoverOnSystemRestart(
+                isAlwaysOnVpn = true,
+                serviceDesiredRunning = false,
+                autoStartOnBoot = false,
+                hasEnabledNetworks = true,
+                hasVpnPermission = true,
+            ),
+        )
+        assertTrue(
+            VpnController.shouldRecoverOnSystemRestart(
+                isAlwaysOnVpn = false,
+                serviceDesiredRunning = true,
+                autoStartOnBoot = false,
+                hasEnabledNetworks = true,
+                hasVpnPermission = true,
+            ),
+        )
+        assertTrue(
+            VpnController.shouldRecoverOnSystemRestart(
+                isAlwaysOnVpn = false,
+                serviceDesiredRunning = false,
+                autoStartOnBoot = true,
+                hasEnabledNetworks = true,
+                hasVpnPermission = true,
+            ),
+        )
+        assertFalse(
+            VpnController.shouldRecoverOnSystemRestart(
+                isAlwaysOnVpn = false,
+                serviceDesiredRunning = false,
+                autoStartOnBoot = false,
+                hasEnabledNetworks = true,
+                hasVpnPermission = true,
+            ),
+        )
+        assertFalse(
+            VpnController.shouldRecoverOnSystemRestart(
+                isAlwaysOnVpn = true,
+                serviceDesiredRunning = true,
+                autoStartOnBoot = true,
+                hasEnabledNetworks = false,
+                hasVpnPermission = true,
+            ),
+        )
+        assertFalse(
+            VpnController.shouldRecoverOnSystemRestart(
+                isAlwaysOnVpn = true,
+                serviceDesiredRunning = true,
+                autoStartOnBoot = true,
+                hasEnabledNetworks = true,
+                hasVpnPermission = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `watchdog abort and recovery backoff match persistent mode policy`() {
+        assertTrue(VpnController.shouldAbortOnWatchdog(autoRecoverMode = false))
+        assertFalse(VpnController.shouldAbortOnWatchdog(autoRecoverMode = true))
+
+        assertEquals(3_000L, VpnController.nextRecoveryBackoffMs(0))
+        assertEquals(6_000L, VpnController.nextRecoveryBackoffMs(1))
+        assertEquals(12_000L, VpnController.nextRecoveryBackoffMs(2))
+        assertEquals(24_000L, VpnController.nextRecoveryBackoffMs(3))
+        assertEquals(30_000L, VpnController.nextRecoveryBackoffMs(4))
+        assertEquals(30_000L, VpnController.nextRecoveryBackoffMs(10))
+    }
 }

@@ -16,6 +16,12 @@ import androidx.core.content.ContextCompat
 import com.easytier.android.EasyTierApp
 import com.easytier.android.MainActivity
 import com.easytier.android.R
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * EasyTier 常驻前台服务（无 TUN / SOCKS5 模式或等待连接时保活）。
@@ -30,6 +36,9 @@ import com.easytier.android.R
  */
 class EasyTierForegroundService : Service() {
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var recoveryJob: Job? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -41,6 +50,7 @@ class EasyTierForegroundService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 Log.i(TAG, "收到通知栏停止指令")
+                recoveryJob?.cancel()
                 safeStartForeground(buildNotification(getString(R.string.vpn_state_stopping)))
                 stopAllExternally()
                 stopSelf()
@@ -48,20 +58,35 @@ class EasyTierForegroundService : Service() {
             }
         }
 
-        // START_STICKY 进程被回收后系统以 null intent 拉起时：核对控制器真实状态，
-        // 若引擎并未运行则立即退场，杜绝“僵尸前台通知”空转耗电。
-        if (intent == null) {
-            val active = runCatching {
-                EasyTierApp.get().container.vpnController.serviceRunning.value
-            }.getOrDefault(false)
-            if (!active) {
-                safeStartForeground(buildNotification(getString(R.string.vpn_state_stopping)))
+        // START_STICKY 进程被回收后系统以 null intent 拉起，或任务划掉兜底恢复：
+        // 若控制器未运行则依据持久化开关决定是否自动恢复服务。
+        if (intent == null || intent.action == ACTION_RECOVER) {
+            val controller = runCatching { EasyTierApp.get().container.vpnController }.getOrNull()
+            if (controller != null && controller.isTunEstablished()) {
+                safeStartForeground(buildNotification(getString(R.string.vpn_state_starting)))
                 stopSelf()
                 return START_NOT_STICKY
             }
+            if (controller != null && controller.serviceRunning.value) {
+                safeStartForeground(buildNotification(getString(R.string.fg_state_running_default)))
+                return START_STICKY
+            }
+            safeStartForeground(buildNotification(getString(R.string.vpn_state_starting)))
+            recoveryJob?.cancel()
+            recoveryJob = scope.launch {
+                val recovered = runCatching {
+                    controller?.recoverFromSystemRestart(isAlwaysOnVpn = false) ?: false
+                }.getOrDefault(false)
+                if (!recovered) {
+                    stopSelf()
+                }
+            }
+            return START_STICKY
         }
 
-        val text = intent?.getStringExtra(EXTRA_TEXT)
+        recoveryJob?.cancel()
+        recoveryJob = null
+        val text = intent.getStringExtra(EXTRA_TEXT)
             ?: getString(R.string.fg_state_running_default)
         safeStartForeground(buildNotification(text))
         return START_STICKY
@@ -97,7 +122,22 @@ class EasyTierForegroundService : Service() {
             .onFailure { Log.w(TAG, "获取容器失败，跳过停止核心实例", it) }
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        val shouldRecover = runCatching {
+            EasyTierApp.get().container.vpnController.shouldAutoRecover()
+        }.getOrDefault(false)
+        if (!shouldRecover) return
+        EasyTierVpnService.scheduleServiceRecoveryAlarm(
+            context = applicationContext,
+            intent = Intent(applicationContext, EasyTierForegroundService::class.java).setAction(ACTION_RECOVER),
+            requestCode = RECOVER_ALARM_REQUEST_CODE,
+        )
+    }
+
     override fun onDestroy() {
+        recoveryJob?.cancel()
+        scope.cancel()
         runCatching {
             getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
         }
@@ -147,6 +187,8 @@ class EasyTierForegroundService : Service() {
         private const val CHANNEL_ID = "easytier_service_channel"
         private const val NOTIFICATION_ID = 2048
         const val ACTION_STOP = "com.easytier.android.STOP_FOREGROUND_SERVICE"
+        const val ACTION_RECOVER = "com.easytier.android.RECOVER_FOREGROUND_SERVICE"
+        private const val RECOVER_ALARM_REQUEST_CODE = 1002
         private const val EXTRA_TEXT = "extra_text"
 
         fun start(context: Context, text: String) {

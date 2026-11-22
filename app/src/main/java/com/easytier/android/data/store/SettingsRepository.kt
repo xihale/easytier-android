@@ -29,6 +29,7 @@ data class AppSettings(
     val themeMode: String = "system", // system | light | dark
     val enableVpn: Boolean = true,
     val autoStartOnBoot: Boolean = false,
+    val serviceDesiredRunning: Boolean = false,
     val enableSocks5: Boolean = false,
     val socks5Port: Int = 1080,
     // Magic DNS 转发普通域名查询的上游服务器，支持 udp:// tcp:// tls://(DoT) https://(DoH)。
@@ -60,6 +61,7 @@ class SettingsRepository(
         val THEME = stringPreferencesKey("theme_mode")
         val ENABLE_VPN = booleanPreferencesKey("enable_vpn")
         val AUTO_START = booleanPreferencesKey("auto_start_on_boot")
+        val SERVICE_DESIRED_RUNNING = booleanPreferencesKey("service_desired_running")
         val SOCKS5_ENABLED = booleanPreferencesKey("enable_socks5")
         val SOCKS5_PORT = intPreferencesKey("socks5_port")
         // 换行分隔保序（DNS 按顺序做故障转移）
@@ -81,6 +83,7 @@ class SettingsRepository(
                 themeMode = p[Keys.THEME] ?: "system",
                 enableVpn = p[Keys.ENABLE_VPN] ?: true,
                 autoStartOnBoot = p[Keys.AUTO_START] ?: false,
+                serviceDesiredRunning = p[Keys.SERVICE_DESIRED_RUNNING] ?: false,
                 enableSocks5 = p[Keys.SOCKS5_ENABLED] ?: false,
                 socks5Port = p[Keys.SOCKS5_PORT] ?: 1080,
                 // 键缺失 = 用默认（阿里 DoT）；键存在但为空串 = 用户显式清空，用核心内置回退
@@ -125,6 +128,9 @@ class SettingsRepository(
 
     suspend fun setAutoStart(enabled: Boolean) =
         context.settingsDataStore.edit { it[Keys.AUTO_START] = enabled }
+
+    suspend fun setServiceDesiredRunning(running: Boolean) =
+        context.settingsDataStore.edit { it[Keys.SERVICE_DESIRED_RUNNING] = running }
 
     suspend fun setSocks5(enabled: Boolean, port: Int) =
         context.settingsDataStore.edit {

@@ -28,7 +28,7 @@ class AppContainer(app: Application) {
     val settingsRepository = SettingsRepository(appContext, containerScope)
     val networksRepository = NetworksRepository(appContext, containerScope)
     val engine = EasyTierEngine(appContext)
-    val vpnController = VpnController(appContext, engine, settingsRepository)
+    val vpnController = VpnController(appContext, engine, settingsRepository, networksRepository)
     val updateChecker = UpdateChecker(settingsRepository)
 }
 

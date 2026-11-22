@@ -1,5 +1,6 @@
 package com.easytier.android.core.vpn
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -49,6 +51,7 @@ class EasyTierVpnService : VpnService() {
     private val fdLock = Any()
     private val tunMutex = Mutex()
     private var applyJob: Job? = null
+    private var recoveryJob: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
@@ -87,12 +90,47 @@ class EasyTierVpnService : VpnService() {
             ?: TunRoutePlanner.DEFAULT_MTU
 
         if (name == null || ipv4 == null) {
-            Log.w(TAG, "缺少必要参数或进程重建空 Intent，停止 VPN 服务")
+            val action = intent?.action
+            val isAlwaysOnIntent = action == SERVICE_INTERFACE
+            val isSystemOrRecover = intent == null || isAlwaysOnIntent || action == ACTION_RECOVER
+            if (!isSystemOrRecover) {
+                Log.w(TAG, "缺少必要参数，停止 VPN 服务 (action=$action)")
+                safeStartForeground(buildNotification(getString(R.string.vpn_state_starting)))
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            val activeSpec = synchronized(fdLock) {
+                if (vpnInterface != null) appliedSpec else null
+            }
+            val alreadyRunning = runCatching {
+                EasyTierApp.get().container.vpnController.serviceRunning.value
+            }.getOrDefault(false)
+            if (alreadyRunning && activeSpec != null) {
+                safeStartForeground(
+                    buildNotification(getString(R.string.vpn_state_running, activeSpec.instanceName)),
+                )
+                return START_STICKY
+            }
+            stopped = false
             safeStartForeground(buildNotification(getString(R.string.vpn_state_starting)))
-            stopSelf()
-            return START_NOT_STICKY
+            recoveryJob?.cancel()
+            recoveryJob = scope.launch {
+                val recovered = runCatching {
+                    EasyTierApp.get().container.vpnController.recoverFromSystemRestart(
+                        isAlwaysOnVpn = isAlwaysOnIntent,
+                    )
+                }.getOrDefault(false)
+                if (!recovered && !stopped) {
+                    Log.i(TAG, "无需恢复 VPN 服务，退场停止")
+                    stopVpn()
+                    stopSelf()
+                }
+            }
+            return START_STICKY
         }
 
+        recoveryJob?.cancel()
+        recoveryJob = null
         safeStartForeground(buildNotification(getString(R.string.vpn_state_running, name)))
 
         stopped = false
@@ -270,6 +308,19 @@ class EasyTierVpnService : VpnService() {
             .onFailure { Log.w(TAG, "获取容器失败，跳过停止核心实例", it) }
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        val shouldRecover = runCatching {
+            EasyTierApp.get().container.vpnController.shouldAutoRecover()
+        }.getOrDefault(false)
+        if (!shouldRecover) return
+        scheduleServiceRecoveryAlarm(
+            context = applicationContext,
+            intent = Intent(applicationContext, EasyTierVpnService::class.java).setAction(ACTION_RECOVER),
+            requestCode = RECOVER_ALARM_REQUEST_CODE,
+        )
+    }
+
     override fun onDestroy() {
         stopped = true
         scope.cancel()
@@ -381,6 +432,30 @@ class EasyTierVpnService : VpnService() {
         private const val MAGIC_DNS_FAKE_IP = "100.100.100.101"
         const val ACTION_STOP = "com.easytier.android.STOP_VPN"
         const val ACTION_STOP_TUN = "com.easytier.android.STOP_VPN_TUN"
+        const val ACTION_RECOVER = "com.easytier.android.RECOVER_VPN"
+        private const val RECOVER_ALARM_REQUEST_CODE = 1001
+
+        internal fun scheduleServiceRecoveryAlarm(
+            context: Context,
+            intent: Intent,
+            requestCode: Int,
+            delayMs: Long = 1_500L,
+        ) {
+            runCatching {
+                val alarm = context.getSystemService(AlarmManager::class.java) ?: return
+                val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                val pending = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    PendingIntent.getForegroundService(context, requestCode, intent, flags)
+                } else {
+                    PendingIntent.getService(context, requestCode, intent, flags)
+                }
+                alarm.set(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + delayMs,
+                    pending,
+                )
+            }.onFailure { Log.w(TAG, "调度任务移除恢复闹钟失败: ${it.message}") }
+        }
 
         /** 按 [TunSpec] 启动或平滑热更新系统 TUN。 */
         internal fun start(context: Context, spec: TunSpec) {
