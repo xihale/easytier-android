@@ -66,6 +66,7 @@ fun ServiceHeroCard(
     stats: List<String>,
     onToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    offlineWarning: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     val start = animateColorAsState(
@@ -126,9 +127,13 @@ fun ServiceHeroCard(
                 Column(Modifier.padding(start = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         StatusDot(
-                            if (running) StatusGreen else Color.White.copy(alpha = 0.6f),
+                            when {
+                                running && offlineWarning -> StatusWarning
+                                running -> StatusGreen
+                                else -> Color.White.copy(alpha = 0.6f)
+                            },
                             size = 10.dp,
-                            pulse = running,
+                            pulse = running && !offlineWarning,
                         )
                         AnimatedContent(
                             targetState = statusText,
@@ -285,3 +290,4 @@ private val HeroEnd = Color(0xFF5E7CF5)
 private val HeroIdleStart = Color(0xFF3E4A85)
 private val HeroIdleEnd = Color(0xFF5A67A8)
 private val StatusGreen = Color(0xFF34D399)
+private val StatusWarning = Color(0xFFF59E0B)

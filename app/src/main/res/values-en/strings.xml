@@ -37,6 +37,7 @@
     <string name="networks_hero_not_running_no_selection">Not running · No network selected</string>
     <string name="networks_hero_not_running">Not running · %1$d selected</string>
     <string name="networks_hero_running">Running · %1$d/%2$d networks</string>
+    <string name="networks_hero_offline">No network · Waiting to reconnect</string>
     <string name="networks_hero_multi_running">%1$d networks running</string>
     <string name="networks_hero_nodes">%1$d nodes</string>
     <string name="networks_delete_title">Delete network</string>
@@ -47,6 +48,7 @@
     <string name="networks_state_running">Running</string>
     <string name="networks_state_running_ip">Running · %1$s</string>
     <string name="state_starting">Starting…</string>
+    <string name="state_connecting">Connecting…</string>
     <string name="networks_a11y_edit">Edit network</string>
     <string name="networks_a11y_delete">Delete network</string>
     <string name="networks_a11y_swipe_edit">Swipe right to edit</string>
@@ -71,6 +73,9 @@
 
     <!-- Status -->
     <string name="status_empty_error">Instance error</string>
+    <string name="status_empty_offline">No network connection</string>
+    <string name="status_empty_offline_hint">Check that Wi-Fi or mobile data is turned on</string>
+    <string name="status_offline_banner">No network connection. Waiting to reconnect…</string>
     <string name="status_empty_none">No running instances</string>
     <string name="status_empty_hint">Go to the Networks tab and turn on a network</string>
     <string name="status_peers_header">Peers · %1$d</string>
@@ -316,6 +321,13 @@
     <string name="vpn_err_set_tun_fd">setTunFd failed: %1$s</string>
     <string name="engine_not_running">Instance not running</string>
     <string name="error_no_enabled_networks">No networks selected. Select the networks to join the service first.</string>
+    <string name="error_no_network">No network connection. Turn on Wi-Fi or mobile data.</string>
+    <string name="error_no_internet_access">No internet access on the current network.</string>
+    <string name="error_public_server_unreachable">Unable to reach the public server. Check your network or server URL.</string>
+    <string name="error_network_lost">Network connection lost. Waiting to reconnect.</string>
+    <string name="error_instance_start_failed">Failed to start "%1$s": %2$s</string>
+    <string name="error_instance_runtime_failed">"%1$s" connection error: %2$s</string>
+    <string name="error_vpn_start_failed">Failed to start VPN service: %1$s</string>
     <string name="fg_channel_name">EasyTier Background Service</string>
     <string name="fg_channel_desc">EasyTier core engine and SOCKS5 proxy keep-alive status</string>
     <string name="fg_state_running_default">Core engine running</string>

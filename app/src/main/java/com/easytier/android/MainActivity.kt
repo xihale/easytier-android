@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -123,7 +124,13 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val container = (application as EasyTierApp).container
             val enabled = container.networksRepository.networks.first().filter { it.enabled }
-            container.vpnController.startService(enabled)
+            container.vpnController.startService(enabled).onFailure { err ->
+                Toast.makeText(
+                    this@MainActivity,
+                    err.message ?: getString(R.string.editor_err_start_failed),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 

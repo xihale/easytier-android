@@ -195,6 +195,7 @@ class EditorViewModel(val container: AppContainer) : ViewModel() {
                         .onFailure {
                             _saveError.value = it.message
                                 ?: appContext.getString(R.string.editor_err_start_failed)
+                            return@launch
                         }
                 }
             }

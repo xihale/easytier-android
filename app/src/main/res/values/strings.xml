@@ -38,6 +38,7 @@
     <string name="networks_hero_not_running_no_selection">未运行 · 未勾选网络</string>
     <string name="networks_hero_not_running">未运行 · 已勾选 %1$d 个网络</string>
     <string name="networks_hero_running">运行中 · %1$d/%2$d 个网络</string>
+    <string name="networks_hero_offline">无网络连接 · 等待恢复</string>
     <string name="networks_hero_multi_running">%1$d 个网络运行中</string>
     <string name="networks_hero_nodes">%1$d 个节点</string>
     <string name="networks_delete_title">删除网络</string>
@@ -48,6 +49,7 @@
     <string name="networks_state_running">运行中</string>
     <string name="networks_state_running_ip">运行中 · %1$s</string>
     <string name="state_starting">正在启动…</string>
+    <string name="state_connecting">正在连接…</string>
     <string name="networks_a11y_edit">编辑网络</string>
     <string name="networks_a11y_delete">删除网络</string>
     <string name="networks_a11y_swipe_edit">右滑编辑</string>
@@ -72,6 +74,9 @@
 
     <!-- 状态页 -->
     <string name="status_empty_error">实例出错</string>
+    <string name="status_empty_offline">当前无网络连接</string>
+    <string name="status_empty_offline_hint">请检查 Wi-Fi 或移动数据是否已开启</string>
+    <string name="status_offline_banner">当前无网络连接，正在等待网络恢复…</string>
     <string name="status_empty_none">没有运行中的实例</string>
     <string name="status_empty_hint">回到「网络」页打开一个网络的开关</string>
     <string name="status_peers_header">对等节点 · %1$d</string>
@@ -317,6 +322,13 @@
     <string name="vpn_err_set_tun_fd">setTunFd 失败：%1$s</string>
     <string name="engine_not_running">实例未在运行</string>
     <string name="error_no_enabled_networks">没有勾选的网络，请先勾选要加入服务的网络</string>
+    <string name="error_no_network">当前无网络连接，请开启 Wi-Fi 或移动数据</string>
+    <string name="error_no_internet_access">当前网络无法访问互联网，连接失败</string>
+    <string name="error_public_server_unreachable">无法连接到公共服务器，请检查网络或服务器地址</string>
+    <string name="error_network_lost">网络连接已断开，正在等待恢复</string>
+    <string name="error_instance_start_failed">启动「%1$s」失败：%2$s</string>
+    <string name="error_instance_runtime_failed">「%1$s」连接异常：%2$s</string>
+    <string name="error_vpn_start_failed">VPN 服务启动失败：%1$s</string>
     <string name="fg_channel_name">EasyTier 后台服务</string>
     <string name="fg_channel_desc">EasyTier 网络核心与 SOCKS5 代理常驻状态</string>
     <string name="fg_state_running_default">网络核心运行中</string>

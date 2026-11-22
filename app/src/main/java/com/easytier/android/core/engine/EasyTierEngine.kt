@@ -112,13 +112,7 @@ class EasyTierEngine(private val appContext: Context? = null) {
 
                 // 清理核心中遗留的孤儿实例：此前启动失败的实例仍注册在核心里，
                 // 不清理的话重试会报 "instance already exists"。只保留我们仍在管理的实例。
-                runCatching {
-                    if (runningInstances.isEmpty()) {
-                        EasyTierJNI.stopAllInstances()
-                    } else {
-                        EasyTierJNI.retainNetworkInstance(runningInstances.toTypedArray())
-                    }
-                }
+                runCatching { syncCoreInstances(runningInstances) }
 
                 val rc = EasyTierJNI.runNetworkInstance(toml)
                 if (rc != 0) {
@@ -145,13 +139,7 @@ class EasyTierEngine(private val appContext: Context? = null) {
     suspend fun stop(networkName: String) = mutex.withLock {
         withContext(Dispatchers.IO) {
             val keep = runningInstances.toMutableSet().apply { remove(networkName) }
-            runCatching {
-                if (keep.isEmpty()) {
-                    EasyTierJNI.stopAllInstances()
-                } else {
-                    EasyTierJNI.retainNetworkInstance(keep.toTypedArray())
-                }
-            }.onSuccess {
+            runCatching { syncCoreInstances(keep) }.onSuccess {
                 runningInstances.remove(networkName)
                 _states.value = _states.value + (networkName to InstanceState.Stopped)
                 emitEvent("实例 $networkName 已停止")
@@ -159,6 +147,27 @@ class EasyTierEngine(private val appContext: Context? = null) {
             }.onFailure {
                 emitEvent("停止 $networkName 失败: ${it.message}")
             }
+        }
+    }
+
+    /** 将指定实例标记为失败并从核心停止（用于连接超时/无网络等控制器侧判定）。 */
+    suspend fun failInstance(networkName: String, message: String) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val keep = runningInstances.toMutableSet().apply { remove(networkName) }
+            runCatching { syncCoreInstances(keep) }
+                .onFailure { Log.w(TAG, "停止失败实例 $networkName 异常: ${it.message}") }
+            runningInstances.remove(networkName)
+            _states.value = _states.value + (networkName to InstanceState.Error(message))
+            emitEvent("实例 $networkName 连接失败: $message")
+            if (runningInstances.isEmpty()) stopPolling()
+        }
+    }
+
+    private fun syncCoreInstances(keep: Set<String>) {
+        if (keep.isEmpty()) {
+            EasyTierJNI.stopAllInstances()
+        } else {
+            EasyTierJNI.retainNetworkInstance(keep.toTypedArray())
         }
     }
 
@@ -241,6 +250,7 @@ class EasyTierEngine(private val appContext: Context? = null) {
             val nextState = if (info.running) {
                 InstanceState.Running(info)
             } else {
+                runningInstances.remove(name)
                 InstanceState.Error(info.errorMsg ?: notRunningMessage)
             }
             val prevState = oldStates[name]
@@ -248,6 +258,9 @@ class EasyTierEngine(private val appContext: Context? = null) {
                 topologyChanged = true
             }
             newStates[name] = nextState
+        }
+        if (runningInstances.isEmpty()) {
+            stopPolling()
         }
 
         if (isForeground) {

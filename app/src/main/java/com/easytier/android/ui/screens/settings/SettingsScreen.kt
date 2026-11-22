@@ -503,6 +503,11 @@ fun SettingsScreen(onOpenDns: () -> Unit = {}, onOpenClashHelp: () -> Unit = {})
             }
         }
     }
+    LaunchedEffect(Unit) {
+        EasyTierApp.get().container.vpnController.serviceErrors.collect { message ->
+            snackbar.showSnackbar(message)
+        }
+    }
     if (showUpdateIntervalDialog) {
         ChoiceDialog(
             title = stringResource(R.string.settings_auto_check_dialog_title),

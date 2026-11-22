@@ -3,14 +3,19 @@ package com.easytier.android.core.vpn
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import com.easytier.android.R
 import com.easytier.android.core.engine.EasyTierEngine
 import com.easytier.android.core.engine.InstanceState
 import com.easytier.android.core.toml.TomlGenerator
 import com.easytier.android.data.model.NetworkConfig
 import com.easytier.android.data.model.NetworkInstanceRunningInfo
+import com.easytier.android.data.model.NetworkingMethod
 import com.easytier.android.data.model.SavedNetwork
+import com.easytier.android.data.model.isLocalAddress
 import com.easytier.android.data.store.SettingsRepository
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -20,8 +25,12 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -57,6 +66,16 @@ class VpnController(
     /** 服务（引擎 + TUN）开关状态，首页 Hero 卡绑定。 */
     val serviceRunning: StateFlow<Boolean> = _serviceRunning.asStateFlow()
 
+    private val _serviceErrors = MutableSharedFlow<String>(extraBufferCapacity = 8)
+
+    /** 服务或实例启动/运行异常事件流，供 UI 提示而非静默吞错。 */
+    val serviceErrors: SharedFlow<String> = _serviceErrors.asSharedFlow()
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var notifyBackgroundErrors = true
+
     /** 已启动实例的原始条目（用于全局 SOCKS5 / DNS 变更时平滑热重载）。 */
     private val runningNetworks = ConcurrentHashMap<String, SavedNetwork>()
 
@@ -65,6 +84,9 @@ class VpnController(
 
     /** 已下发给系统 VPN 的 TUN 规格快照：用于无锁幂等比对，仅在 IP/路由/MTU 变化时热更新。 */
     private val establishedTunSpecs = ConcurrentHashMap<String, TunSpec>()
+
+    /** 首轮连接超时看门狗：避免断网或服务器不可达时长期假阳性停留在「运行中」。 */
+    private val connectWatchdogJobs = ConcurrentHashMap<String, Job>()
 
     /** 串行化启动与 TUN 建立：避免并发读到彼此注册前的旧快照。 */
     private val startMutex = Mutex()
@@ -79,6 +101,11 @@ class VpnController(
         scope = scope,
         onPhysicalNetworkChanged = { engine.onPhysicalNetworkChanged() },
     )
+
+    /** 当前物理底层网络是否可用（用于 UI 离线状态提示，避免假阳性显示正常）。 */
+    val isNetworkAvailable: StateFlow<Boolean> = connectivityMonitor.hasPhysicalNetwork
+
+    private var offlineAlertJob: Job? = null
 
     private data class GlobalNetOptions(
         val enableSocks5: Boolean,
@@ -144,20 +171,80 @@ class VpnController(
                 }
         }
         scope.launch {
-            // 服务开启期间，实例拿到/变更虚拟 IP 或远端子网代理路由变化时自动建立/热更新 TUN。
-            // 先走无锁快路径比对 TunSpec，避免每 2s 流量计数刷新时无意义争抢 startMutex；
-            // 已规划出的 TunSpec 直接传入锁内复用，避免同一轮变化规划两次。
+            // 物理网络在服务运行期间彻底断开超过防抖窗口时提示用户
+            var wasOnline = true
+            connectivityMonitor.hasPhysicalNetwork.collect { online ->
+                if (!_serviceRunning.value) {
+                    wasOnline = online
+                    offlineAlertJob?.cancel()
+                    offlineAlertJob = null
+                    return@collect
+                }
+                if (!online && wasOnline && requiresPhysicalNetworkConfigs(runningConfigs.values)) {
+                    offlineAlertJob?.cancel()
+                    offlineAlertJob = scope.launch {
+                        delay(OFFLINE_ALERT_DEBOUNCE_MS)
+                        if (_serviceRunning.value &&
+                            !connectivityMonitor.hasPhysicalNetwork.value &&
+                            requiresPhysicalNetworkConfigs(runningConfigs.values)
+                        ) {
+                            emitServiceError(context.getString(R.string.error_network_lost))
+                        }
+                    }
+                } else if (online) {
+                    offlineAlertJob?.cancel()
+                    offlineAlertJob = null
+                }
+                wasOnline = online
+            }
+        }
+        scope.launch {
+            // 同步实例运行错误/退出状态 + 已连上节点时提前撤除超时看门狗 + 建立/热更新 TUN。
+            // 先走无锁快路径，避免每 2s 流量计数刷新时无意义争抢 startMutex。
             engine.states.collect { states ->
-                if (!_serviceRunning.value || !vpnEnabled) return@collect
-                val updates = collectPendingTunUpdates(states) ?: return@collect
+                if (!_serviceRunning.value) return@collect
+
+                var hasFailedRunning = false
+                for ((name, state) in states) {
+                    if (!runningConfigs.containsKey(name)) continue
+                    when (state) {
+                        is InstanceState.Error -> hasFailedRunning = true
+                        is InstanceState.Running -> {
+                            if (hasConnectedPeers(state.info)) {
+                                connectWatchdogJobs.remove(name)?.cancel()
+                            }
+                        }
+                        else -> Unit
+                    }
+                }
+
+                val updates = if (vpnEnabled) collectPendingTunUpdates(states) else null
+                if (!hasFailedRunning && updates == null) return@collect
+
                 startMutex.withLock {
-                    if (!_serviceRunning.value || !vpnEnabled) return@withLock
-                    updates.forEach { update ->
-                        val currentConfig = runningConfigs[update.name] ?: return@forEach
-                        if (currentConfig == update.config) {
-                            applyTunSpecLocked(update.name, update.spec)
-                        } else {
-                            reconcileTunLocked(update.name, update.info)
+                    if (!_serviceRunning.value) return@withLock
+                    if (hasFailedRunning) {
+                        for ((name, state) in states) {
+                            val err = state as? InstanceState.Error ?: continue
+                            if (!runningConfigs.containsKey(name)) continue
+                            clearInstanceLocked(name)
+                            emitServiceError(
+                                context.getString(R.string.error_instance_runtime_failed, name, err.message),
+                            )
+                        }
+                        if (runningConfigs.isEmpty()) {
+                            stopServiceResourcesLocked()
+                            return@withLock
+                        }
+                    }
+                    if (vpnEnabled && updates != null) {
+                        updates.forEach { update ->
+                            val currentConfig = runningConfigs[update.name] ?: return@forEach
+                            if (currentConfig == update.config) {
+                                applyTunSpecLocked(update.name, update.spec)
+                            } else {
+                                reconcileTunLocked(update.name, update.info)
+                            }
                         }
                     }
                 }
@@ -203,9 +290,15 @@ class VpnController(
         runCatching {
             EasyTierVpnService.start(context, planned)
             EasyTierForegroundService.stop(context)
-        }.onFailure {
+        }.onFailure { err ->
             establishedTunSpecs.remove(name)
-            Log.e(TAG, "VPN 服务启动失败", it)
+            Log.e(TAG, "VPN 服务启动失败", err)
+            emitServiceError(
+                context.getString(
+                    R.string.error_vpn_start_failed,
+                    err.message ?: context.getString(R.string.vpn_alert_unknown),
+                ),
+            )
         }
     }
 
@@ -216,6 +309,14 @@ class VpnController(
     fun startNetwork(network: SavedNetwork) {
         scope.launch {
             startMutex.withLock {
+                if (requiresPhysicalNetworkConfigs(listOf(network.config)) &&
+                    !connectivityMonitor.querySnapshot().hasPhysicalNetwork
+                ) {
+                    val msg = context.getString(R.string.error_no_network)
+                    engine.failInstance(network.config.networkName, msg)
+                    emitServiceError(msg)
+                    return@withLock
+                }
                 startNetworkLocked(network)
             }
         }
@@ -251,16 +352,54 @@ class VpnController(
         runningNetworks[name] = network
         if (!alreadyRunning || configChanged) {
             engine.start(effective, TomlGenerator.generate(finalConfig))
-                .onFailure {
+                .onFailure { err ->
                     runningNetworks.remove(name)
-                    Log.e(TAG, "实例启动失败: ${it.message}")
+                    Log.e(TAG, "实例启动失败: ${err.message}")
+                    emitServiceError(
+                        context.getString(
+                            R.string.error_instance_start_failed,
+                            name,
+                            err.message ?: context.getString(R.string.vpn_alert_unknown),
+                        ),
+                    )
                     return
                 }
             runningConfigs[name] = finalConfig
             establishedTunSpecs.remove(name)
+            scheduleConnectWatchdog(name, finalConfig)
             connectivityMonitor.triggerDiscoveryBurst()
             if (!vpnEnabled && _serviceRunning.value) {
                 EasyTierForegroundService.start(context, noTunText(runningConfigs.keys))
+            }
+        }
+    }
+
+    private fun scheduleConnectWatchdog(name: String, config: NetworkConfig) {
+        connectWatchdogJobs.remove(name)?.cancel()
+        if (!needsConnectionWatchdog(config)) return
+        connectWatchdogJobs[name] = scope.launch {
+            delay(CONNECT_WATCHDOG_TIMEOUT_MS)
+            startMutex.withLock {
+                connectWatchdogJobs.remove(name)
+                if (!_serviceRunning.value) return@withLock
+                val currentConfig = runningConfigs[name] ?: return@withLock
+                val state = engine.states.value[name] as? InstanceState.Running ?: return@withLock
+                if (hasConnectedPeers(state.info)) return@withLock
+
+                val snap = connectivityMonitor.querySnapshot()
+                val failureReason = evaluateUnconnectedFailure(
+                    config = currentConfig,
+                    hasPhysicalNetwork = snap.hasPhysicalNetwork,
+                    hasValidatedInternet = snap.hasValidatedInternet,
+                ) ?: return@withLock
+                val message = context.getString(failureReason.messageRes)
+
+                clearInstanceLocked(name)
+                engine.failInstance(name, message)
+                emitServiceError(message)
+                if (runningConfigs.isEmpty()) {
+                    stopServiceResourcesLocked()
+                }
             }
         }
     }
@@ -274,13 +413,18 @@ class VpnController(
 
     private suspend fun stopNetworkLocked(network: SavedNetwork) {
         val name = network.config.networkName
-        runningNetworks.remove(name)
-        runningConfigs.remove(name)
-        establishedTunSpecs.remove(name)
+        clearInstanceLocked(name)
         engine.stop(name)
         if (!vpnEnabled && _serviceRunning.value && runningConfigs.isNotEmpty()) {
             EasyTierForegroundService.start(context, noTunText(runningConfigs.keys))
         }
+    }
+
+    private fun clearInstanceLocked(name: String) {
+        connectWatchdogJobs.remove(name)?.cancel()
+        runningNetworks.remove(name)
+        runningConfigs.remove(name)
+        establishedTunSpecs.remove(name)
     }
 
     /**
@@ -294,19 +438,31 @@ class VpnController(
 
     /**
      * 启动服务（引擎 + TUN），拉起全部勾选的网络。
-     * 没有勾选的网络时报错并不启动。
+     * 没有勾选的网络或设备完全无网络连接时报错并不启动。
      */
     fun startService(enabledNetworks: List<SavedNetwork>): Result<Unit> {
-        if (startServiceAsync(enabledNetworks) == null) {
+        if (enabledNetworks.isEmpty()) {
             return Result.failure(
                 IllegalStateException(context.getString(R.string.error_no_enabled_networks)),
             )
         }
+        if (requiresPhysicalNetwork(enabledNetworks) &&
+            !connectivityMonitor.querySnapshot().hasPhysicalNetwork
+        ) {
+            return Result.failure(
+                IllegalStateException(context.getString(R.string.error_no_network)),
+            )
+        }
+        startServiceAsync(enabledNetworks, notifyBackgroundError = true)
         return Result.success(Unit)
     }
 
-    private fun startServiceAsync(enabledNetworks: List<SavedNetwork>): Job? {
+    private fun startServiceAsync(
+        enabledNetworks: List<SavedNetwork>,
+        notifyBackgroundError: Boolean,
+    ): Job? {
         if (enabledNetworks.isEmpty()) return null
+        notifyBackgroundErrors = notifyBackgroundError
         _serviceRunning.value = true
         connectivityMonitor.start()
         return scope.launch {
@@ -315,12 +471,14 @@ class VpnController(
                 // 停掉已不在勾选集合里的运行实例
                 val keep = enabledNetworks.map { it.config.networkName }.toSet()
                 runningConfigs.keys.filter { it !in keep }.forEach { name ->
+                    clearInstanceLocked(name)
                     engine.stop(name)
-                    runningNetworks.remove(name)
-                    runningConfigs.remove(name)
-                    establishedTunSpecs.remove(name)
                 }
                 enabledNetworks.forEach { startNetworkLocked(it) }
+                if (runningConfigs.isEmpty()) {
+                    stopServiceResourcesLocked()
+                    return@withLock
+                }
                 if (!vpnEnabled) {
                     EasyTierForegroundService.start(
                         context,
@@ -345,13 +503,10 @@ class VpnController(
 
     /** 停止服务（引擎 + TUN 全停）。 */
     fun stopService() {
-        _serviceRunning.value = false
-        connectivityMonitor.stop()
+        stopServiceResourcesLocked()
         scope.launch {
             startMutex.withLock {
-                runningNetworks.clear()
-                runningConfigs.clear()
-                establishedTunSpecs.clear()
+                clearAllInstancesLocked()
             }
             EasyTierVpnService.stopTun(context)
             EasyTierForegroundService.stop(context)
@@ -369,23 +524,24 @@ class VpnController(
      * 确保 [BootCompletedReceiver] 在调用 `PendingResult.finish()` 前已完成 `startForegroundService`。
      */
     suspend fun startServiceWithNetworksAndAwait(networks: List<SavedNetwork>): Result<Unit> {
-        val job = startServiceAsync(networks.filter { it.enabled })
+        val job = startServiceAsync(networks.filter { it.enabled }, notifyBackgroundError = false)
             ?: return Result.failure(
                 IllegalStateException(context.getString(R.string.error_no_enabled_networks)),
             )
         job.join()
-        return Result.success(Unit)
+        return if (_serviceRunning.value) {
+            Result.success(Unit)
+        } else {
+            Result.failure(IllegalStateException(context.getString(R.string.editor_err_start_failed)))
+        }
     }
 
     /** 外部停止（通知栏「停止」/ VPN 被系统撤销 / TUN 建立失败）：停服务并停全部网络。 */
     fun onStoppedExternally() {
-        _serviceRunning.value = false
-        connectivityMonitor.stop()
+        stopServiceResourcesLocked()
         scope.launch {
             startMutex.withLock {
-                runningNetworks.clear()
-                runningConfigs.clear()
-                establishedTunSpecs.clear()
+                clearAllInstancesLocked()
             }
             EasyTierVpnService.stopTun(context)
             EasyTierForegroundService.stop(context)
@@ -393,14 +549,40 @@ class VpnController(
         }
     }
 
+    private fun stopServiceResourcesLocked() {
+        _serviceRunning.value = false
+        offlineAlertJob?.cancel()
+        offlineAlertJob = null
+        connectivityMonitor.stop()
+        EasyTierVpnService.stopTun(context)
+        EasyTierForegroundService.stop(context)
+    }
+
+    private fun clearAllInstancesLocked() {
+        connectWatchdogJobs.values.forEach { it.cancel() }
+        connectWatchdogJobs.clear()
+        runningNetworks.clear()
+        runningConfigs.clear()
+        establishedTunSpecs.clear()
+    }
+
+    private fun emitServiceError(message: String) {
+        _serviceErrors.tryEmit(message)
+        if (notifyBackgroundErrors && _serviceErrors.subscriptionCount.value == 0) {
+            mainHandler.post {
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     fun shutdown() {
         _serviceRunning.value = false
+        offlineAlertJob?.cancel()
+        offlineAlertJob = null
         connectivityMonitor.stop()
         scope.launch {
             startMutex.withLock {
-                runningNetworks.clear()
-                runningConfigs.clear()
-                establishedTunSpecs.clear()
+                clearAllInstancesLocked()
             }
             EasyTierVpnService.stopTun(context)
             EasyTierForegroundService.stop(context)
@@ -416,7 +598,62 @@ class VpnController(
             context.getString(R.string.fg_state_no_tun_networks, names.joinToString(", "))
         }
 
+    internal enum class ConnectionFailureReason(val messageRes: Int) {
+        NO_NETWORK(R.string.error_no_network),
+        NO_INTERNET_ACCESS(R.string.error_no_internet_access),
+        PUBLIC_SERVER_UNREACHABLE(R.string.error_public_server_unreachable),
+    }
+
     companion object {
         private const val TAG = "VpnController"
+        private const val CONNECT_WATCHDOG_TIMEOUT_MS = 10_000L
+        private const val OFFLINE_ALERT_DEBOUNCE_MS = 2_000L
+
+        internal fun requiresPhysicalNetwork(networks: List<SavedNetwork>): Boolean =
+            networks.any { it.config.networkingMethod != NetworkingMethod.Standalone }
+
+        internal fun requiresPhysicalNetworkConfigs(configs: Collection<NetworkConfig>): Boolean =
+            configs.any { it.networkingMethod != NetworkingMethod.Standalone }
+
+        internal fun needsConnectionWatchdog(config: NetworkConfig): Boolean = when (config.networkingMethod) {
+            NetworkingMethod.PublicServer -> true
+            NetworkingMethod.Manual -> config.peerUrls.isNotEmpty()
+            NetworkingMethod.Standalone -> false
+        }
+
+        internal fun hasConnectedPeers(info: NetworkInstanceRunningInfo): Boolean =
+            info.peers.isNotEmpty() || info.routes.isNotEmpty()
+
+        internal fun isLocalPeerUrl(url: String): Boolean {
+            val afterScheme = url.trim().substringAfter("://", url.trim())
+            val host = if (afterScheme.startsWith("[")) {
+                afterScheme.substringAfter('[').substringBefore(']')
+            } else {
+                afterScheme.substringBefore('/').substringBefore(':')
+            }
+            return host.isNotBlank() && isLocalAddress(host)
+        }
+
+        internal fun evaluateUnconnectedFailure(
+            config: NetworkConfig,
+            hasPhysicalNetwork: Boolean,
+            hasValidatedInternet: Boolean,
+        ): ConnectionFailureReason? {
+            if (config.networkingMethod == NetworkingMethod.Standalone) return null
+            if (!hasPhysicalNetwork) return ConnectionFailureReason.NO_NETWORK
+            if (config.networkingMethod == NetworkingMethod.PublicServer) {
+                return if (hasValidatedInternet) {
+                    ConnectionFailureReason.PUBLIC_SERVER_UNREACHABLE
+                } else {
+                    ConnectionFailureReason.NO_INTERNET_ACCESS
+                }
+            }
+            // Manual 模式：若配置了非局域网对端地址且系统已判无互联网，则失败；纯局域网地址允许无 WAN 等待
+            val hasRemotePeers = config.peerUrls.any { !isLocalPeerUrl(it) }
+            if (!hasValidatedInternet && hasRemotePeers) {
+                return ConnectionFailureReason.NO_INTERNET_ACCESS
+            }
+            return null
+        }
     }
 }

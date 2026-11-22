@@ -89,6 +89,7 @@ import com.easytier.android.ui.components.rememberHaptics
 import com.easytier.android.ui.components.rememberWithVpnPermission
 import com.easytier.android.ui.components.stateAccent
 import com.easytier.android.ui.icons.AppIcons
+import com.easytier.android.ui.theme.LocalStatusColors
 import com.easytier.android.util.Format
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -107,6 +108,12 @@ class NetworksViewModel(val container: AppContainer) : ViewModel() {
 
     /** 服务（引擎 + TUN）开关状态。 */
     val serviceRunning = container.vpnController.serviceRunning
+
+    /** 当前物理底层网络是否可用。 */
+    val isNetworkAvailable = container.vpnController.isNetworkAvailable
+
+    /** 异步启动/连接异常事件流。 */
+    val serviceErrors = container.vpnController.serviceErrors
 
     /** 勾选/取消勾选网络：持久化 + 服务运行中同步引擎。 */
     fun setEnabled(network: SavedNetwork, enabled: Boolean) =
@@ -159,8 +166,17 @@ fun NetworksScreen(
     var pendingDelete by remember { mutableStateOf<SavedNetwork?>(null) }
     var showImportDialog by remember { mutableStateOf(false) }
 
+    val isNetworkAvailable by vm.isNetworkAvailable.collectAsStateWithLifecycle()
+
     fun showSnack(message: String) {
         scope.launch { snackbar.showSnackbar(message) }
+    }
+
+    LaunchedEffect(Unit) {
+        vm.serviceErrors.collect { message ->
+            haptics.reject()
+            snackbar.showSnackbar(message)
+        }
     }
 
     // VPN 关闭（仅引擎模式）时无需系统 VPN 权限
@@ -170,7 +186,10 @@ fun NetworksScreen(
 
     // 开启服务（引擎）前先确保 VPN 已授权；授权通过后再真正启动
     val startServiceWithPermission = rememberWithVpnPermission(enabled = enableVpn) {
-        vm.startService(networks.filter { it.enabled })?.let { showSnack(it) }
+        vm.startService(networks.filter { it.enabled })?.let {
+            haptics.reject()
+            showSnack(it)
+        }
     }
 
     // ---- 服务级聚合状态 ----
@@ -217,6 +236,10 @@ fun NetworksScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item(key = "hero") {
+                val requiresNetwork = remember(networks) {
+                    networks.any { it.enabled && it.config.networkingMethod != NetworkingMethod.Standalone }
+                }
+                val offlineWarning = serviceRunning && !isNetworkAvailable && requiresNetwork
                 ServiceHeroCard(
                     running = serviceRunning,
                     statusText = when {
@@ -224,6 +247,8 @@ fun NetworksScreen(
                             stringResource(R.string.networks_hero_not_running_no_selection)
                         !serviceRunning ->
                             stringResource(R.string.networks_hero_not_running, enabledCount)
+                        offlineWarning ->
+                            stringResource(R.string.networks_hero_offline)
                         else ->
                             stringResource(R.string.networks_hero_running, activeCount, networks.size)
                     },
@@ -239,6 +264,7 @@ fun NetworksScreen(
                         add(Format.bytes(txTotal))
                         add(Format.bytes(rxTotal))
                     },
+                    offlineWarning = offlineWarning,
                     onToggle = { on ->
                         if (on) {
                             startServiceWithPermission()
@@ -368,7 +394,12 @@ private fun NetworkCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val rawAccent = stateAccent(state)
+    val isConnecting = state is InstanceState.Running &&
+        network.config.networkingMethod != NetworkingMethod.Standalone &&
+        state.info.peers.isEmpty() &&
+        state.info.routes.isEmpty() &&
+        state.info.myNodeInfo?.virtualIpv4 == null
+    val rawAccent = if (isConnecting) LocalStatusColors.current.warning else stateAccent(state)
     val accent by animateColorAsState(
         targetValue = rawAccent,
         animationSpec = tween(durationMillis = 250),
@@ -380,15 +411,16 @@ private fun NetworkCard(
     val deleteAction = stringResource(R.string.networks_a11y_delete)
     val swipeEditLabel = stringResource(R.string.networks_a11y_swipe_edit)
     val swipeDeleteLabel = stringResource(R.string.networks_a11y_swipe_delete)
-    val (subtitle, rawSubtitleColor) = when (state) {
-        is InstanceState.Running -> (
+    val (subtitle, rawSubtitleColor) = when {
+        isConnecting -> stringResource(R.string.state_connecting) to rawAccent
+        state is InstanceState.Running -> (
             state.info.myNodeInfo?.virtualIpv4?.toIpString()
                 ?.let { stringResource(R.string.networks_state_running_ip, it) }
                 ?: stringResource(R.string.networks_state_running)
             ) to rawAccent
-        is InstanceState.Starting -> stringResource(R.string.state_starting) to rawAccent
-        is InstanceState.Error -> state.message to rawAccent
-        null, InstanceState.Stopped -> stringResource(network.config.networkingMethod.labelRes) to
+        state is InstanceState.Starting -> stringResource(R.string.state_starting) to rawAccent
+        state is InstanceState.Error -> state.message to rawAccent
+        else -> stringResource(network.config.networkingMethod.labelRes) to
             MaterialTheme.colorScheme.onSurfaceVariant
     }
     val subtitleColor by animateColorAsState(
@@ -510,7 +542,7 @@ private fun NetworkCard(
                             subtitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = subtitleColor,
-                            maxLines = 1,
+                            maxLines = if (state is InstanceState.Error) 2 else 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 2.dp),
                         )

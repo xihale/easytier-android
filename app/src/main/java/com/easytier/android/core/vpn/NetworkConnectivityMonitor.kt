@@ -12,6 +12,9 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -37,12 +40,20 @@ internal class NetworkConnectivityMonitor(
     private val wifiManager =
         appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
 
+    internal data class ConnectivitySnapshot(
+        val hasPhysicalNetwork: Boolean,
+        val hasValidatedInternet: Boolean,
+    )
+
     private data class PhysicalNetState(
         val isWifi: Boolean = false,
+        val isValidated: Boolean = false,
         val linkHash: Int = 0,
     )
 
     private val activeNetworks = ConcurrentHashMap<Network, PhysicalNetState>()
+    private val _hasPhysicalNetwork = MutableStateFlow(querySystemConnectivity().hasPhysicalNetwork)
+    val hasPhysicalNetwork: StateFlow<Boolean> = _hasPhysicalNetwork.asStateFlow()
 
     @Volatile
     private var monitoring = false
@@ -56,19 +67,26 @@ internal class NetworkConnectivityMonitor(
         override fun onAvailable(network: Network) {
             val caps = runCatching { connectivityManager?.getNetworkCapabilities(network) }.getOrNull()
             val isWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
-            activeNetworks[network] = PhysicalNetState(isWifi = isWifi)
+            val isValidated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+            activeNetworks[network] = PhysicalNetState(isWifi = isWifi, isValidated = isValidated)
+            syncPhysicalNetworkFlag()
             scheduleNotify(triggerMulticastBurst = isWifi)
         }
 
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
             val isWifi = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+            val isValidated = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             val prev = activeNetworks[network]
-            if (prev == null || prev.isWifi != isWifi) {
+            if (prev == null || prev.isWifi != isWifi || prev.isValidated != isValidated) {
                 activeNetworks[network] = PhysicalNetState(
                     isWifi = isWifi,
+                    isValidated = isValidated,
                     linkHash = prev?.linkHash ?: 0,
                 )
-                scheduleNotify(triggerMulticastBurst = isWifi)
+                syncPhysicalNetworkFlag()
+                if (prev == null || prev.isWifi != isWifi) {
+                    scheduleNotify(triggerMulticastBurst = isWifi)
+                }
             }
         }
 
@@ -77,7 +95,12 @@ internal class NetworkConnectivityMonitor(
             val prev = activeNetworks[network]
             if (prev == null || prev.linkHash != addrHash) {
                 val isWifi = prev?.isWifi ?: false
-                activeNetworks[network] = PhysicalNetState(isWifi = isWifi, linkHash = addrHash)
+                val isValidated = prev?.isValidated ?: false
+                activeNetworks[network] = PhysicalNetState(
+                    isWifi = isWifi,
+                    isValidated = isValidated,
+                    linkHash = addrHash,
+                )
                 if (prev != null) {
                     scheduleNotify(triggerMulticastBurst = isWifi)
                 }
@@ -86,11 +109,24 @@ internal class NetworkConnectivityMonitor(
 
         override fun onLost(network: Network) {
             activeNetworks.remove(network)
+            syncPhysicalNetworkFlag()
             if (!hasActiveWifi()) {
                 releaseMulticastLock()
             }
             scheduleNotify(triggerMulticastBurst = false)
         }
+    }
+
+    /** 查询当前物理网络与互联网连通性快照（即使未开启监听也可调用）。 */
+    fun querySnapshot(): ConnectivitySnapshot {
+        if (monitoring && activeNetworks.isNotEmpty()) {
+            val values = activeNetworks.values
+            return ConnectivitySnapshot(
+                hasPhysicalNetwork = values.isNotEmpty(),
+                hasValidatedInternet = values.any { it.isValidated },
+            )
+        }
+        return querySystemConnectivity()
     }
 
     /** 开启物理网络监听并触发首轮局域网发现窗口（幂等）。 */
@@ -102,6 +138,8 @@ internal class NetworkConnectivityMonitor(
             }
             monitoring = true
             activeNetworks.clear()
+            seedActiveNetworksLocked()
+            syncPhysicalNetworkFlag()
             val cm = connectivityManager
             if (cm != null) {
                 val request = NetworkRequest.Builder()
@@ -126,6 +164,7 @@ internal class NetworkConnectivityMonitor(
             multicastBurstJob = null
             activeNetworks.clear()
             runCatching { connectivityManager?.unregisterNetworkCallback(networkCallback) }
+            _hasPhysicalNetwork.value = querySystemConnectivity().hasPhysicalNetwork
         }
         releaseMulticastLock()
     }
@@ -161,6 +200,55 @@ internal class NetworkConnectivityMonitor(
                     onPhysicalNetworkChanged()
                 }
             }
+        }
+    }
+
+    private fun syncPhysicalNetworkFlag() {
+        _hasPhysicalNetwork.value = activeNetworks.isNotEmpty()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun seedActiveNetworksLocked() {
+        val cm = connectivityManager ?: return
+        runCatching {
+            for (network in cm.allNetworks) {
+                val caps = cm.getNetworkCapabilities(network) ?: continue
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                ) {
+                    activeNetworks[network] = PhysicalNetState(
+                        isWifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                        isValidated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+                    )
+                }
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun querySystemConnectivity(): ConnectivitySnapshot {
+        val cm = connectivityManager ?: return ConnectivitySnapshot(
+            hasPhysicalNetwork = true,
+            hasValidatedInternet = true,
+        )
+        return runCatching {
+            var hasPhysical = false
+            var hasValidated = false
+            for (network in cm.allNetworks) {
+                val caps = cm.getNetworkCapabilities(network) ?: continue
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                ) {
+                    hasPhysical = true
+                    if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                        hasValidated = true
+                        break
+                    }
+                }
+            }
+            ConnectivitySnapshot(hasPhysicalNetwork = hasPhysical, hasValidatedInternet = hasValidated)
+        }.getOrElse {
+            ConnectivitySnapshot(hasPhysicalNetwork = true, hasValidatedInternet = true)
         }
     }
 

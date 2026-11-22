@@ -73,7 +73,16 @@ class QuickSettingsTileService : TileService() {
             if (vpnEnabled && controller.needsPermission() != null) {
                 requestPermissionInApp()
             } else {
-                controller.startService(enabled)
+                controller.startService(enabled).onFailure { err ->
+                    mainHandler.post {
+                        Toast.makeText(
+                            applicationContext,
+                            err.message ?: getString(R.string.editor_err_start_failed),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    update(running = false, hasEnabledNetworks = true)
+                }
             }
         }
     }

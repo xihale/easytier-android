@@ -97,6 +97,9 @@ import kotlinx.coroutines.launch
 class StatusViewModel(val container: AppContainer) : ViewModel() {
 
     val states = container.engine.states
+    val serviceRunning = container.vpnController.serviceRunning
+    val isNetworkAvailable = container.vpnController.isNetworkAvailable
+    val serviceErrors = container.vpnController.serviceErrors
 
     private val rxHistoryDeque = ArrayDeque<Long>(HISTORY_LEN)
     private val txHistoryDeque = ArrayDeque<Long>(HISTORY_LEN)
@@ -159,6 +162,8 @@ fun StatusScreen(
 ) {
     val vm: StatusViewModel = viewModel { StatusViewModel(container) }
     val states by vm.states.collectAsStateWithLifecycle()
+    val serviceRunning by vm.serviceRunning.collectAsStateWithLifecycle()
+    val isNetworkAvailable by vm.isNetworkAvailable.collectAsStateWithLifecycle()
     val rxHistory by vm.rxRateHistory.collectAsStateWithLifecycle()
     val txHistory by vm.txRateHistory.collectAsStateWithLifecycle()
 
@@ -175,6 +180,12 @@ fun StatusScreen(
     }
     // 单击节点卡打开详情对话框；长按复制 IP
     var selectedPeer by remember { mutableStateOf<TaggedPeer?>(null) }
+
+    LaunchedEffect(Unit) {
+        vm.serviceErrors.collect { message ->
+            snackbarHostState.showSnackbar(message)
+        }
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(lifecycleOwner) {
@@ -220,16 +231,22 @@ fun StatusScreen(
         if (running.isEmpty()) {
             val starting = states.values.any { it is InstanceState.Starting }
             val error = states.values.filterIsInstance<InstanceState.Error>().firstOrNull()
+            val offlineEmpty = error == null && !starting && serviceRunning && !isNetworkAvailable
             // 居中空状态：Box 垂直水平居中，避免写死 top 偏移
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 EmptyState(
                     icon = AppIcons.CloudOff,
                     title = when {
                         error != null -> stringResource(R.string.status_empty_error)
+                        offlineEmpty -> stringResource(R.string.status_empty_offline)
                         starting -> stringResource(R.string.state_starting)
                         else -> stringResource(R.string.status_empty_none)
                     },
-                    hint = error?.message ?: stringResource(R.string.status_empty_hint),
+                    hint = when {
+                        error != null -> error.message
+                        offlineEmpty -> stringResource(R.string.status_empty_offline_hint)
+                        else -> stringResource(R.string.status_empty_hint)
+                    },
                 )
             }
         } else {
@@ -239,6 +256,28 @@ fun StatusScreen(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    if (serviceRunning && !isNetworkAvailable) {
+                        item(key = "offline_banner") {
+                            AppCard {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Icon(
+                                        AppIcons.CloudOff,
+                                        contentDescription = null,
+                                        tint = LocalStatusColors.current.warning,
+                                    )
+                                    Text(
+                                        stringResource(R.string.status_offline_banner),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = LocalStatusColors.current.warning,
+                                    )
+                                }
+                            }
+                        }
+                    }
                     item { NodeInfoCard(running, onCopyIp = copyIpToClipboard) }
                     item {
                         TrafficCard(
