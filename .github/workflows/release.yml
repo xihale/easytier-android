@@ -65,13 +65,33 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk \
              "EasyTierAndroid-${VERSION}-arm64-v8a.apk"
 
+      - name: Prepare release notes
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PREV_TAG="$(git describe --tags --abbrev=0 --match 'v*' "${TAG}^" 2>/dev/null || true)"
+          TAG_MSG="$(git for-each-ref --format='%(contents)' "refs/tags/${TAG}" | sed '/^-----BEGIN PGP SIGNATURE-----$/,$d' | sed -e '/./,$!d' -e :a -e '/^\n*$/{$d;N;ba' -e '}')"
+          {
+            if [ -n "$TAG_MSG" ]; then
+              printf '%s\n\n' "$TAG_MSG"
+            elif [ -n "$PREV_TAG" ]; then
+              printf '## Changes\n\n'
+              git log "${PREV_TAG}..${TAG}" --no-merges --format='- %s (%h)'
+              printf '\n'
+            else
+              printf '## Changes\n\n'
+              git log -n 20 --no-merges --format='- %s (%h)'
+              printf '\n'
+            fi
+            if [ -n "$PREV_TAG" ]; then
+              printf '**Full Changelog**: https://github.com/%s/compare/%s...%s\n\n' \
+                "$GITHUB_REPOSITORY" "$PREV_TAG" "$TAG"
+            fi
+            printf '> 核心引擎为 [EasyTier](https://github.com/EasyTier/EasyTier)（LGPL-3.0），以预编译\n'
+            printf '> `libeasytier_android_jni.so` 动态链接，对应源码见上游仓库（版本/commit 以 `jni-*` Release 标注为准）。\n'
+          } > "$RUNNER_TEMP/release-notes.md"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: EasyTierAndroid-*-arm64-v8a.apk
-          generate_release_notes: true
-          # LGPL-3.0 §4a 要求随副本附显著声明，自动生成的 notes 不含，这里追加
-          append_body: true
-          body: |
-            > 核心引擎为 [EasyTier](https://github.com/EasyTier/EasyTier)（LGPL-3.0），以预编译
-            > `libeasytier_android_jni.so` 动态链接，对应源码见上游仓库（版本/commit 以 `jni-*` Release 标注为准）。
+          body_path: ${{ runner.temp }}/release-notes.md
