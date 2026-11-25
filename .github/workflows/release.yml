@@ -17,6 +17,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate annotated release tag
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          OBJ_TYPE="$(git cat-file -t "refs/tags/${TAG}")"
+          if [ "$OBJ_TYPE" != "tag" ]; then
+            echo "::error::发布标签 ${TAG} 必须是 annotated tag（当前对象类型为 ${OBJ_TYPE}），请使用 git tag -a ${TAG} -m \"...\" 重新打标"
+            exit 1
+          fi
+          TAG_MSG="$(git for-each-ref --format='%(contents)' "refs/tags/${TAG}" | sed '/^-----BEGIN PGP SIGNATURE-----$/,$d' | sed -e '/./,$!d' -e :a -e '/^\n*$/{$d;N;ba' -e '}')"
+          if [ -z "$TAG_MSG" ]; then
+            echo "::error::发布标签 ${TAG} 的 release message 不能为空，请按 AGENTS.md 规范填写发布说明"
+            exit 1
+          fi
+          echo "Validated annotated tag ${TAG}"
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
@@ -70,18 +85,12 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           PREV_TAG="$(git describe --tags --abbrev=0 --match 'v*' "${TAG}^" 2>/dev/null || true)"
           TAG_MSG="$(git for-each-ref --format='%(contents)' "refs/tags/${TAG}" | sed '/^-----BEGIN PGP SIGNATURE-----$/,$d' | sed -e '/./,$!d' -e :a -e '/^\n*$/{$d;N;ba' -e '}')"
+          if [ -z "$TAG_MSG" ]; then
+            echo "::error::发布标签 ${TAG} 缺少 release message"
+            exit 1
+          fi
           {
-            if [ -n "$TAG_MSG" ]; then
-              printf '%s\n\n' "$TAG_MSG"
-            elif [ -n "$PREV_TAG" ]; then
-              printf '## Changes\n\n'
-              git log "${PREV_TAG}..${TAG}" --no-merges --format='- %s (%h)'
-              printf '\n'
-            else
-              printf '## Changes\n\n'
-              git log -n 20 --no-merges --format='- %s (%h)'
-              printf '\n'
-            fi
+            printf '%s\n\n' "$TAG_MSG"
             if [ -n "$PREV_TAG" ]; then
               printf '**Full Changelog**: https://github.com/%s/compare/%s...%s\n\n' \
                 "$GITHUB_REPOSITORY" "$PREV_TAG" "$TAG"
