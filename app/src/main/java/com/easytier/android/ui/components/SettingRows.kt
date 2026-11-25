@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -31,11 +32,12 @@ fun SettingRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     icon: ImageVector? = null,
+    clickRole: Role? = null,
     trailing: @Composable () -> Unit = {},
     onClick: (() -> Unit)? = null,
 ) {
     val rowModifier = if (onClick != null) {
-        Modifier.fillMaxWidth().then(modifier).clickable(onClick = onClick)
+        Modifier.fillMaxWidth().then(modifier).clickable(role = clickRole, onClick = onClick)
             .padding(vertical = 12.dp, horizontal = 16.dp)
     } else {
         Modifier.fillMaxWidth().then(modifier).padding(vertical = 12.dp, horizontal = 16.dp)
@@ -94,6 +96,7 @@ fun SwitchRow(
         subtitle = subtitle,
         icon = icon,
         modifier = modifier,
+        clickRole = Role.Switch,
         // 整行可点；Switch 只做展示（onCheckedChange = null），避免行点击 + 开关自身点击双触发
         onClick = {
             haptics.toggle(!checked)

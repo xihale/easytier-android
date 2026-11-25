@@ -4,18 +4,26 @@ import android.os.Build
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.View
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -26,9 +34,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -37,23 +53,33 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.easytier.android.R
 import com.easytier.android.core.engine.InstanceState
+import com.easytier.android.ui.icons.AppIcons
 import com.easytier.android.ui.theme.LocalStatusColors
 
 /** 系统触感强度键（Settings.System.HAPTIC_FEEDBACK_INTENSITY，公开 SDK 未暴露该常量）。 */
@@ -437,4 +463,166 @@ fun stateAccent(state: InstanceState?): Color = when (state) {
     is InstanceState.Starting -> LocalStatusColors.current.warning
     is InstanceState.Error -> MaterialTheme.colorScheme.error
     null, InstanceState.Stopped -> MaterialTheme.colorScheme.outline
+}
+
+/** 卡片内部行间分隔线：统一留出 16dp 水平边距与半透明轮廓色。 */
+@Composable
+fun CardDivider(modifier: Modifier = Modifier) {
+    HorizontalDivider(
+        modifier = modifier.padding(horizontal = 16.dp),
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+    )
+}
+
+/**
+ * 顶栏内联搜索框：返回按钮退出搜索、自动获焦、一键清空、软键盘 Search 收起键盘。
+ */
+@Composable
+fun InlineSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClose: () -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+) {
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = {
+            keyboard?.hide()
+            onClose()
+        }) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back))
+        }
+        Surface(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    if (query.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                    BasicTextField(
+                        value = query,
+                        onValueChange = onQueryChange,
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                    )
+                }
+                if (query.isNotEmpty()) {
+                    IconButton(
+                        onClick = { onQueryChange("") },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.common_clear),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 可折叠分组卡片：标题行可点按展开/收起，右侧展示非零已改计数胶囊 + 旋转箭头。
+ */
+@Composable
+fun CollapsibleCardSection(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    modifiedCount: Int = 0,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "collapsibleChevron",
+    )
+    AppCard(modifier = modifier) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggle)
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                if (modifiedCount > 0) {
+                    PillBadge(
+                        text = stringResource(R.string.editor_modified_count, modifiedCount),
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+                Icon(
+                    imageVector = AppIcons.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .rotate(chevronRotation),
+                )
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(tween(220, easing = FastOutSlowInEasing)) + fadeIn(tween(180)),
+                exit = shrinkVertically(tween(180, easing = FastOutSlowInEasing)) + fadeOut(tween(120)),
+            ) {
+                Column(Modifier.padding(bottom = 4.dp)) {
+                    CardDivider()
+                    content()
+                }
+            }
+        }
+    }
 }
